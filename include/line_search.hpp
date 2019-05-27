@@ -416,7 +416,7 @@ inline auto handle_cases(state_t const& state) -> std::tuple<double, bool, bool>
     return case_4(state);
 }
 
-inline auto cstep(state_t& state) -> status_t
+inline auto cstep(state_t& state) -> void
 {
     // Check the input parameters for errors.
     assert(!state.bracketed
@@ -451,7 +451,6 @@ inline auto cstep(state_t& state) -> status_t
     state.t.alpha = alpha;
     state.t.func  = std::numeric_limits<double>::quiet_NaN();
     state.t.grad  = std::numeric_limits<double>::quiet_NaN();
-    return status_t::success;
 }
 } // namespace detail
 
@@ -588,7 +587,7 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
             LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
                         "    sufficient decrease: %f <= %f\n"
                         "    curvature condition: %f <= %f\n"
-                        "    %u function evaluations",
+                        "    %u function evaluations\n",
                         state.t.func, func_test, std::abs(state.t.grad),
                         params.g_tol * (-grad_0), num_f_evals);
             return {status_t::success, state.t.alpha, state.t.func,
@@ -638,19 +637,11 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
                     assert(std::isnan(_s.t.grad));
                 }
             } dummy{state, grad_test};
-            auto const status = cstep(state);
-            if (status != status_t::success) {
-                LBFGS_TRACE("cstep returned %i\n", static_cast<int>(status));
-            }
-            assert(status == status_t::success);
+            cstep(state);
         }
         else {
             LBFGS_TRACE("%s", "using normal updating scheme\n");
-            auto const status = cstep(state);
-            if (status != status_t::success) {
-                LBFGS_TRACE("cstep returned %i\n", static_cast<int>(status));
-            }
-            assert(status == status_t::success);
+            cstep(state);
         }
 
         if (state.bracketed) {
