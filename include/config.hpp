@@ -70,9 +70,7 @@
 
 #define LBFGS_TRACE(fmt, ...)                                                  \
     do {                                                                       \
-        constexpr auto plain_fmt = "%s:%i trace: ";                            \
-        constexpr auto pretty_fmt =                                            \
-            "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m ";             \
-        std::fprintf(stderr, pretty_fmt, __FILE__, __LINE__);                  \
-        std::fprintf(stderr, fmt, __VA_ARGS__);                                \
+        std::fprintf(                                                          \
+            stderr, "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m " fmt, \
+            __FILE__, __LINE__, __VA_ARGS__);                                  \
     } while (false)

@@ -10,8 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include <iostream>
-
 #include <unistd.h>
 #include <cstdio>
 
@@ -537,10 +535,8 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
         // So we use the best position step size obtained so far.
         assert(num_f_evals <= params.max_f_evals);
         if (num_f_evals == params.max_f_evals) {
-#if defined(TCM_DEBUG)
-            std::cerr << "Too many function evaluations: " << num_f_evals
-                      << " == " << params.max_f_evals << '\n';
-#endif
+            LBFGS_TRACE("too many function evaluations: %u == %u\n",
+                        num_f_evals, params.max_f_evals);
             // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
             return {status_t::too_many_function_evaluations, state.x.alpha,
                     state.x.func, state.x.grad, num_f_evals};
@@ -559,28 +555,16 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
             value_and_gradient(state.t.alpha);
         ++num_f_evals;
         auto const func_test = func_0 + state.t.alpha * grad_test;
-#if defined(TCM_DEBUG)
-        std::cerr << "αₜ = " << state.t.alpha << ", ф(αₜ) = " << state.t.func
-                  << ", ф'(αₜ) = " << state.t.grad << '\n';
-#endif
-
-#if 0
-            // all possible convergence tests
-            if ((state.bracketed
-                 && (stp <= interval.min || stp >= interval.max))
-                || (infoc == 0))
-                info = 6;
-#endif
+        LBFGS_TRACE("another function evaluation: αₜ=%f, ф(αₜ)=%f, ф'(αₜ)=%f\n",
+                    state.t.alpha, state.t.func, state.t.grad);
         // (p.292 of J.J. Moré & D.C. Thuente 1994):
 
         // First case in Theorem 2.2 (p. 292): we reached `αₘₐₓ` and
         // condition (2.3) holds (i.e. `ψ(αₜ) <= 0` and `ψ'(αₜ) < 0`).
         if (state.t.alpha == params.step_max && state.t.func <= func_test
             && state.t.grad <= grad_test) {
-#if defined(TCM_DEBUG)
-            std::cerr << "Maximum step reached: ф'(αₜ) = " << state.t.grad
-                      << " <= " << grad_test << '\n';
-#endif
+            LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
+                        grad_test);
             return {status_t::maximum_step_reached, state.t.alpha, state.t.func,
                     state.t.grad, num_f_evals};
         }
@@ -589,10 +573,8 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
         // condition (2.4) holds (i.e. `ψ(αₜ) > 0` and `ψ'(αₜ) >= 0`).
         if (state.t.alpha == params.step_min
             && (state.t.func > func_test || state.t.grad >= grad_test)) {
-#if defined(TCM_DEBUG)
-            std::cerr << "Minimum step reached: ф'(αₜ) = " << state.t.grad
-                      << " >= " << grad_test << '\n';
-#endif
+            LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%f >= %f\n", state.t.grad,
+                        grad_test);
             return {status_t::minimum_step_reached, state.t.alpha, state.t.func,
                     state.t.grad, num_f_evals};
         }
@@ -603,14 +585,12 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
         // precondition for the whole algorithm.
         if ((state.t.func <= func_test)
             && (std::abs(state.t.grad) <= params.g_tol * (-grad_0))) {
-            // #if defined(TCM_DEBUG)
-            std::cerr << "Strong Wolfe conditions satisfied: \n"
-                      << "sufficient decrease: " << state.t.func
-                      << " <= " << func_test << '\n'
-                      << "curvature condition: " << std::abs(state.t.grad)
-                      << " <= " << params.g_tol * (-grad_0) << '\n';
-            std::cerr << num_f_evals << " function evaluations\n";
-            // #endif
+            LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
+                        "    sufficient decrease: %f <= %f\n"
+                        "    curvature condition: %f <= %f\n"
+                        "    %u function evaluations",
+                        state.t.func, func_test, std::abs(state.t.grad),
+                        params.g_tol * (-grad_0), num_f_evals);
             return {status_t::success, state.t.alpha, state.t.func,
                     state.t.grad, num_f_evals};
         }
@@ -631,7 +611,7 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
         if (first_stage && (state.t.func <= state.x.func)
             && (state.t.func > func_test)) {
 
-            std::cerr << "Using modified updating scheme\n";
+            LBFGS_TRACE("%s", "using modified updating scheme\n");
             struct use_modified_function {
                 state_t&     _s;
                 double const _grad_test;
@@ -660,17 +640,15 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
             } dummy{state, grad_test};
             auto const status = cstep(state);
             if (status != status_t::success) {
-                std::cerr << "cstep returned " << static_cast<int>(status)
-                          << '\n';
+                LBFGS_TRACE("cstep returned %i\n", static_cast<int>(status));
             }
             assert(status == status_t::success);
         }
         else {
-            std::cerr << "Using normal updating scheme\n";
+            LBFGS_TRACE("%s", "using normal updating scheme\n");
             auto const status = cstep(state);
             if (status != status_t::success) {
-                std::cerr << "cstep returned " << static_cast<int>(status)
-                          << '\n';
+                LBFGS_TRACE("cstep returned %i\n", static_cast<int>(status));
             }
             assert(status == status_t::success);
         }
