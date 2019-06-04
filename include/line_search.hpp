@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cmath>
 #include <optional>
+#include <system_error>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -30,7 +31,14 @@ enum class status_t {
     invalid_step_bounds,
 };
 
+auto make_error_code(status_t) -> std::error_code;
+
 LBFGS_NAMESPACE_END
+
+namespace std {
+template <>
+struct is_error_code_enum<::LBFGS_NAMESPACE::status_t> : false_type {};
+} // namespace std
 
 LBFGS_NAMESPACE_BEGIN
 
@@ -194,12 +202,6 @@ inline auto minimise_cubic_interpolation(double const a, double const f_a,
                                          double const f_b,
                                          double const df_b) noexcept -> double
 {
-#if 0
-        std::cerr << "a = " << a << ", f(a) = " << f_a << ", f'(a) = " << df_a
-                  << '\n'
-                  << "b = " << b << ", f(b) = " << f_b << ", f'(b) = " << df_b
-                  << '\n';
-#endif
     assert(a != b && "Precondition violated");
     auto const length = b - a;
     auto const temp   = 3.0 * (f_a - f_b) / length + df_b;
@@ -210,11 +212,6 @@ inline auto minimise_cubic_interpolation(double const a, double const f_a,
         if (b < a) { gamma = -gamma; }
         auto const p = temp + gamma;
         auto const q = 2.0 * gamma + df_b - df_a;
-#if 0
-            std::cerr << "θ = " << theta
-                      << /*", s = " << s <<*/ ", γ = " << gamma << ", p = " << p
-                      << ", q = " << q << '\n';
-#endif
         assert(q != 0.0);
         return a + p / q * length;
     }
@@ -271,7 +268,8 @@ struct param_type {
 };
 
 namespace detail {
-constexpr auto check_parameters(param_type const& p) noexcept -> status_t
+constexpr auto check_parameters(param_type const& p, float const func_0,
+                                float const grad_0) noexcept -> status_t
 {
     if (std::isnan(p.x_tol) || p.x_tol <= 0.0f)
         return status_t::invalid_interval_tolerance;
@@ -282,6 +280,8 @@ constexpr auto check_parameters(param_type const& p) noexcept -> status_t
     if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0f
         || p.step_max <= p.step_min)
         return status_t::invalid_step_bounds;
+    if (std::isnan(func_0) || std::isnan(grad_0) || grad_0 >= 0.0f)
+        return status_t::invalid_argument;
     return status_t::success;
 }
 
@@ -296,21 +296,26 @@ struct _internal_param_t {
     double const   step_min;
     double const   step_max;
     unsigned const max_f_evals;
+    double const   func_0;
+    double const   grad_0;
 
     /// Converts user-defined parameters to internal ones.
     ///
     /// This constructor performs sanity checks (see #check_parameters). So if
     /// it succeeds it's safe to assume that parameters satisfy all the
     /// preconditions.
-    constexpr _internal_param_t(param_type const& p) noexcept
+    constexpr _internal_param_t(param_type const& p, float const _func_0,
+                                float const _grad_0) noexcept
         : x_tol{static_cast<double>(p.x_tol)}
         , f_tol{static_cast<double>(p.f_tol)}
         , g_tol{static_cast<double>(p.g_tol)}
         , step_min{static_cast<double>(p.step_min)}
         , step_max{static_cast<double>(p.step_max)}
         , max_f_evals{p.max_f_evals}
+        , func_0{static_cast<double>(_func_0)}
+        , grad_0{static_cast<double>(_grad_0)}
     {
-        assert(check_parameters(p) == status_t::success);
+        assert(check_parameters(p, _func_0, _grad_0) == status_t::success);
     }
 
     _internal_param_t()                         = delete;
@@ -318,30 +323,6 @@ struct _internal_param_t {
     _internal_param_t(_internal_param_t&&)      = delete;
     _internal_param_t& operator=(_internal_param_t const&) = delete;
     _internal_param_t& operator=(_internal_param_t&&) = delete;
-};
-
-/// \brief A two-element FIFO queue.
-///
-/// The purpose of #width_history_t is to keep track of the evolution of the
-/// width of the search interval. Once the interval has been bracketed, we want
-/// it's width to keep decreasing exponentially so that the search algorithm
-/// terminates in a finite number of steps.
-///
-/// Whenever the width doesn't decrease sufficiently fast for two "iterations"
-/// of the main loop, we use a bisection step to keep the interval shrinking.
-struct width_history_t {
-    double previous; ///< Previous width
-    double current;  ///< Current width
-
-    /// Adds an element to the queue. The #previous width is forgotten.
-    constexpr auto push(double const new_width) noexcept -> void
-    {
-        assert(new_width >= 0 && "Width cannot be negative");
-        assert(new_width <= current
-               && "Width of the search interval should be non-increasing");
-        previous = current;
-        current  = new_width;
-    }
 };
 
 /// \brief Case 1 on p. 299 of [1].
@@ -447,7 +428,7 @@ inline auto handle_cases(state_t const& state) -> std::tuple<double, bool, bool>
     return case_4(state);
 }
 
-inline auto cstep(state_t& state) -> void
+inline auto update_trial_value_and_interval(state_t& state) -> void
 {
     // Check the input parameters for errors.
     assert(!state.bracketed
@@ -466,8 +447,6 @@ inline auto cstep(state_t& state) -> void
         state.x = state.t;
     }
     LBFGS_TRACE("cstep: new α_l=%f, α_u=%f\n", state.x.alpha, state.y.alpha);
-    // state.interval = interval_t{state.x.alpha, state.y.alpha, state.t.alpha,
-    //                             state.bracketed};
     alpha = std::clamp(alpha, state.interval.min, state.interval.max);
     if (state.bracketed && bound) {
         auto const middle =
@@ -477,9 +456,11 @@ inline auto cstep(state_t& state) -> void
         alpha = (state.x.alpha < state.y.alpha) ? std::min(middle, alpha)
                                                 : std::max(middle, alpha);
     }
-    state.t.alpha = alpha;
-    state.t.func  = std::numeric_limits<double>::quiet_NaN();
-    state.t.grad  = std::numeric_limits<double>::quiet_NaN();
+    state.t.alpha  = alpha;
+    state.t.func   = std::numeric_limits<double>::quiet_NaN();
+    state.t.grad   = std::numeric_limits<double>::quiet_NaN();
+    state.interval = interval_t{state.x.alpha, state.y.alpha, state.t.alpha,
+                                state.bracketed};
 }
 } // namespace detail
 
@@ -506,14 +487,16 @@ struct _internal_result_t {
     }
 };
 
-#define TCM_DEBUG
-
-/// \brief Checks whether the search interval has shrunk below the threshold.
 struct interval_too_small_fn {
-    _internal_result_t&      result;
+    _internal_result_t&      result; ///< Reference to the return type
     state_t const&           state;  ///< Current state
     _internal_param_t const& params; ///< Algorithm options
 
+    /// \brief Checks whether the search interval has shrunk below the threshold
+    /// which is given by #params.x_tol.
+    ///
+    /// If the interval is indeed too small, #result is set to the best state
+    /// obtained so far and a pointer to it is returned.
     constexpr auto operator()() const noexcept -> _internal_result_t*
     {
         if (state.bracketed
@@ -522,7 +505,7 @@ struct interval_too_small_fn {
             LBFGS_TRACE("interval too small: %f <= %f",
                         state.interval.max - state.interval.min,
                         params.x_tol * state.interval.max);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
+            // NOTE: We return αₓ rather than αₜ!
             result = {status_t::interval_too_small, state.x.alpha, state.x.func,
                       state.x.grad, state.num_f_evals};
             return &result;
@@ -532,17 +515,23 @@ struct interval_too_small_fn {
 };
 
 struct too_many_f_evals_fn {
-    _internal_result_t&      result;
+    _internal_result_t&      result; ///< Reference to the return type
     state_t const&           state;  ///< Current state
     _internal_param_t const& params; ///< Algorithm options
 
+    /// \brief Checks whether all available function evaluations (i.e.
+    /// #params.max_f_evals) have been exhausted.
+    ///
+    /// If we have already evaluated the user-defined `f` #params.max_f_evals
+    /// times, #result is set to the best state obtained so far and a pointer to
+    /// it is returned.
     constexpr auto operator()() const noexcept -> _internal_result_t*
     {
-        assert(state.num_f_evals <= params.max_f_evals);
+        assert(state.num_f_evals <= params.max_f_evals && "invalid state");
         if (state.num_f_evals == params.max_f_evals) {
             LBFGS_TRACE("too many function evaluations: %u == %u\n",
                         state.num_f_evals, params.max_f_evals);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
+            // NOTE: We return αₓ rather than αₜ!
             result = {status_t::too_many_function_evaluations, state.x.alpha,
                       state.x.func, state.x.grad, state.num_f_evals};
             return &result;
@@ -552,14 +541,20 @@ struct too_many_f_evals_fn {
 };
 
 struct reached_max_step_fn {
-    _internal_result_t&      result;
+    _internal_result_t&      result; ///< Reference to the return type
     state_t const&           state;  ///< Current state
     _internal_param_t const& params; ///< Algorithm options
 
-    constexpr auto operator()(double const func_test,
-                              double const grad_test) const noexcept
-        -> _internal_result_t*
+    /// \brief Checks whether the algorithm should terminate at `αₘₐₓ`.
+    ///
+    /// This check corresponds to the first case in Theorem 2.2 (p. 292):
+    /// we reached `αₘₐₓ` and condition (2.3) holds (i.e. `ψ(αₜ) <= 0`
+    /// and `ψ'(αₜ) < 0`). If this is indeed the case, #result is set to
+    /// αₜ and a pointer to it is returned.
+    constexpr auto operator()() const noexcept -> _internal_result_t*
     {
+        auto const grad_test = params.f_tol * params.grad_0;
+        auto const func_test = params.func_0 + state.t.alpha * grad_test;
         if (state.t.alpha == params.step_max && state.t.func <= func_test
             && state.t.grad <= grad_test) {
             LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
@@ -573,14 +568,20 @@ struct reached_max_step_fn {
 };
 
 struct reached_min_step_fn {
-    _internal_result_t&      result;
+    _internal_result_t&      result; ///< Reference to the return type
     state_t const&           state;  ///< Current state
     _internal_param_t const& params; ///< Algorithm options
 
-    constexpr auto operator()(double const func_test,
-                              double const grad_test) const noexcept
-        -> _internal_result_t*
+    /// \brief Checks whether the algorithm should terminate at `αₘₐₓ`.
+    ///
+    /// This check corresponds to the second case in Theorem 2.2 (p. 292): we
+    /// reached `αₘᵢₙ` and condition (2.4) holds (i.e. `ψ(αₜ) > 0` and
+    /// `ψ'(αₜ) >= 0`). If this is indeed the case, #result is set to αₜ and a
+    /// pointer to it is returned.
+    constexpr auto operator()() const noexcept -> _internal_result_t*
     {
+        auto const grad_test = params.f_tol * params.grad_0;
+        auto const func_test = params.func_0 + state.t.alpha * grad_test;
         if (state.t.alpha == params.step_min
             && (state.t.func > func_test || state.t.grad >= grad_test)) {
             LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%f >= %f\n", state.t.grad,
@@ -594,28 +595,110 @@ struct reached_min_step_fn {
 };
 
 struct strong_wolfe_fn {
-    _internal_result_t&      result;
+    _internal_result_t&      result; ///< Reference to the return type
     state_t const&           state;  ///< Current state
     _internal_param_t const& params; ///< Algorithm options
-    double const             grad_0;
 
-    constexpr auto operator()(double const func_test) const noexcept
-        -> _internal_result_t*
+    constexpr auto operator()() const noexcept -> _internal_result_t*
     {
+        // Both sufficient decrease (1.1) and curvatuve (1.2) conditions
+        // hold (i.e. `ψ(αₜ) <= 0` and `|ф'(αₜ)| <= η·|ф'(0)|`). We use the
+        // fact that `|ф'(0)| = -ф'(0)`, because `ф'(0) < 0` is a
+        // precondition for the whole algorithm.
+        auto const func_test =
+            params.func_0 + state.t.alpha * params.f_tol * params.grad_0;
         if ((state.t.func <= func_test)
-            && (std::abs(state.t.grad) <= params.g_tol * (-grad_0))) {
+            && (std::abs(state.t.grad) <= params.g_tol * (-params.grad_0))) {
             LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
                         "    sufficient decrease: %f <= %f\n"
                         "    curvature condition: %f <= %f\n"
                         "    %u function evaluations\n",
                         state.t.func, func_test, std::abs(state.t.grad),
-                        params.g_tol * (-grad_0), state.num_f_evals);
+                        params.g_tol * (-params.grad_0), state.num_f_evals);
             result = {status_t::success, state.t.alpha, state.t.func,
                       state.t.grad, state.num_f_evals};
             return &result;
         }
         return nullptr;
     }
+};
+
+struct rounding_errors_fn {
+    _internal_result_t&      result; ///< Reference to the return type
+    state_t const&           state;  ///< Current state
+    _internal_param_t const& params; ///< Algorithm options
+
+    constexpr auto operator()() const noexcept -> _internal_result_t*
+    {
+        if (state.bracketed && state.t.alpha == state.interval.min) {
+            result = {status_t::rounding_errors_prevent_progress, state.x.alpha,
+                      state.x.func, state.x.grad, state.num_f_evals};
+            return &result;
+        }
+        return nullptr;
+    }
+};
+
+struct ensure_shrinking_fn {
+    /// \brief A two-element FIFO queue.
+    ///
+    /// The purpose of #width_history_t is to keep track of the evolution of the
+    /// width of the search interval. Once the interval has been bracketed, we want
+    /// it's width to keep decreasing exponentially so that the search algorithm
+    /// terminates in a finite number of steps.
+    ///
+    /// Whenever the width doesn't decrease sufficiently fast for two "iterations"
+    /// of the main loop, we use a bisection step to keep the interval shrinking.
+    struct width_history_t {
+        double previous; ///< Previous width
+        double current;  ///< Current width
+
+        /// Adds an element to the queue. The #previous width is forgotten.
+        constexpr auto push(double const new_width) noexcept -> void
+        {
+            assert(new_width >= 0 && "Width cannot be negative");
+            assert(new_width <= current
+                   && "Width of the search interval should be non-increasing");
+            previous = current;
+            current  = new_width;
+        }
+    };
+
+    constexpr ensure_shrinking_fn(state_t&     state,
+                                  double const max_width) noexcept
+        : _state{state}, _width_history{2.0 * max_width, max_width}
+    {
+        assert(max_width >= 0.0 && "Width cannot be negative");
+    }
+
+    constexpr ensure_shrinking_fn(state_t&                 state,
+                                  _internal_param_t const& params) noexcept
+        : ensure_shrinking_fn{state, params.step_max - params.step_min}
+    {}
+
+    constexpr auto operator()() noexcept -> void
+    {
+        if (_state.bracketed) {
+            // Last paragraph of p.292:
+            // <quote>If the algorithm generates an interval I in [αₘᵢₙ,
+            // αₘₐₓ], then we need a third rule to guarantee that the choice
+            // of αₜ forces the length of I to zero. In our implementation
+            // this is done by monitoring the length of I; if the length of
+            // I does not decrease by a factor δ < 1 after two trials, then
+            // a bisection step is used for the next trial αₜ.</quote>
+            constexpr auto delta = 0.66;
+            auto const new_width = std::abs(_state.y.alpha - _state.x.alpha);
+            if (new_width >= delta * _width_history.previous) {
+                _state.t.alpha =
+                    _state.x.alpha + 0.5 * (_state.y.alpha - _state.x.alpha);
+            }
+            _width_history.push(new_width);
+        }
+    }
+
+  private:
+    state_t&        _state;
+    width_history_t _width_history;
 };
 
 struct with_modified_function_t {
@@ -652,207 +735,66 @@ struct with_modified_function_t {
     double const _grad_test;
 };
 
+template <class Function> struct evaluate_fn {
+    Function const& value_and_gradient;
+    state_t&        state;
+
+    constexpr auto operator()() const noexcept -> void
+    {
+        assert(std::isnan(state.t.func) && std::isnan(state.t.grad));
+        std::tie(state.t.func, state.t.grad) =
+            value_and_gradient(state.t.alpha);
+        ++state.num_f_evals;
+        LBFGS_TRACE("another function evaluation: αₜ=%f, ф(αₜ)=%f, ф'(αₜ)=%f\n",
+                    state.t.alpha, state.t.func, state.t.grad);
+    }
+};
+
+template <class Function>
+evaluate_fn(Function const&, state_t&)->evaluate_fn<Function>;
+
 template <class Function>
 auto line_search(Function value_and_gradient, _internal_param_t const& params,
-                 double const func_0, double const grad_0, double const alpha_0)
-    -> _internal_result_t
+                 double const alpha_0) -> _internal_result_t
 {
     constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
-    assert(grad_0 < 0);
     assert(alpha_0 > 0);
-
-    // TODO(twesterhout): Explain
     state_t state = state_t{
-        /*x=*/endpoint_t{/*alpha=*/0, /*func=*/func_0, /*grad=*/grad_0},
-        /*y=*/endpoint_t{/*alpha=*/0, /*func=*/func_0, /*grad=*/grad_0},
-        /*t=*/endpoint_t{/*alpha=*/alpha_0, /*func=*/NaN, /*grad=*/NaN},
+        /*x=*/endpoint_t{0, params.func_0, params.grad_0},
+        /*y=*/endpoint_t{0, params.func_0, params.grad_0},
+        /*t=*/endpoint_t{alpha_0, NaN, NaN},
         /*interval=*/interval_t{0, 0, alpha_0, false},
         /*bracketed=*/false,
         /*num_f_evals=*/0u,
     };
-
-    auto const grad_test = params.f_tol * grad_0;
-    // auto       num_f_evals = 0u;   // Current number of function evaluations
-    auto first_stage = true; // TODO(twesterhout): Explain stages
-
-    width_history_t width_history;
-    width_history.current  = params.step_max - params.step_min;
-    width_history.previous = 2 * width_history.current;
-
+    auto               first_stage = true; // TODO(twesterhout): Explain stages
     _internal_result_t _result;
 
-    auto const evaluate = [&value_and_gradient, &state, func_0, grad_test]() {
-        std::tie(state.t.func, state.t.grad) =
-            value_and_gradient(state.t.alpha);
-        ++state.num_f_evals;
-        LBFGS_TRACE("another function evaluation: αₜ=%f, ф(αₜ)=%f, ф'(αₜ)=%f\n",
-                    state.t.alpha, state.t.func, state.t.grad);
-        return func_0 + state.t.alpha * grad_test;
-    };
-
+    evaluate_fn           evaluate{value_and_gradient, state};
+    ensure_shrinking_fn   ensure_shrinking{state, params};
     interval_too_small_fn interval_too_small{_result, state, params};
     too_many_f_evals_fn   too_many_f_evals{_result, state, params};
     reached_max_step_fn   reached_max_step{_result, state, params};
     reached_min_step_fn   reached_min_step{_result, state, params};
-    strong_wolfe_fn       strong_wolfe{_result, state, params, grad_0};
-#if 0
-    auto const interval_too_small =
-        [&state, &params]() -> std::optional<_internal_result_t> {
-        if (state.bracketed
-            && (state.interval.max - state.interval.min
-                <= params.x_tol * state.interval.max)) {
-            LBFGS_TRACE("interval too small: %f <= %f",
-                        state.interval.max - state.interval.min,
-                        params.x_tol * state.interval.max);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
-            return std::optional<_internal_result_t>{
-                {status_t::interval_too_small, state.x.alpha, state.x.func,
-                 state.x.grad, state.num_f_evals}};
-        }
-        return std::nullopt;
-    };
-#endif
-
-#if 0
-    auto const too_many_function_evals =
-        [&state, &params]() -> std::optional<_internal_result_t> {
-        assert(state.num_f_evals <= params.max_f_evals);
-        if (state.num_f_evals == params.max_f_evals) {
-            LBFGS_TRACE("too many function evaluations: %u == %u\n",
-                        state.num_f_evals, params.max_f_evals);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
-            return std::optional<_internal_result_t>{
-                {status_t::too_many_function_evaluations, state.x.alpha,
-                 state.x.func, state.x.grad, state.num_f_evals}};
-        }
-        return std::nullopt;
-    };
-#endif
-
-#if 0
-    auto const reached_max_step =
-        [&state, &params, &grad_test](
-            auto const func_test) -> std::optional<_internal_result_t> {
-        if (state.t.alpha == params.step_max && state.t.func <= func_test
-            && state.t.grad <= grad_test) {
-            LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
-                        grad_test);
-            return std::optional<_internal_result_t>{
-                {status_t::maximum_step_reached, state.t.alpha, state.t.func,
-                 state.t.grad, state.num_f_evals}};
-        }
-        return std::nullopt;
-    };
-#endif
+    rounding_errors_fn    rounding_errors{_result, state, params};
+    strong_wolfe_fn       strong_wolfe{_result, state, params};
 
     for (;;) {
-        state.interval = interval_t{state.x.alpha, state.y.alpha, state.t.alpha,
-                                    state.bracketed};
-        // Force the step to be within the bounds stpmax and stpmin.
         state.t.alpha =
             std::clamp(state.t.alpha, params.step_min, params.step_max);
-        LBFGS_TRACE("proposed αₜ=%f ∈ [%f, %f]\n", state.t.alpha,
+        LBFGS_TRACE("proposed αₜ=%f, I = [%f, %f]\n", state.t.alpha,
                     state.interval.min, state.interval.max);
 
-        // Search interval has shrunk below the threshold. We reset current
-        // position to the best one obtained so far and stop.
-        if (auto answer = interval_too_small(); answer) { return *answer; }
-#if 0
-        if (state.bracketed
-            && (state.interval.max - state.interval.min
-                <= params.x_tol * state.interval.max)) {
-            LBFGS_TRACE("interval too small: %f <= %f",
-                        state.interval.max - state.interval.min,
-                        params.x_tol * state.interval.max);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
-            return {status_t::interval_too_small, state.x.alpha, state.x.func,
-                    state.x.grad, state.num_f_evals};
-        }
-#endif
-
-        // We reached the maximum number of evaluations of `f`. Even if we
-        // come up with a guess for a better step size, we can't check it.
-        // So we use the best position step size obtained so far.
-        if (auto answer = too_many_f_evals(); answer) { return *answer; }
-#if 0
-        assert(state.num_f_evals <= params.max_f_evals);
-        if (state.num_f_evals == params.max_f_evals) {
-            LBFGS_TRACE("too many function evaluations: %u == %u\n",
-                        state.num_f_evals, params.max_f_evals);
-            // NOTE: We return `state.x.alpha` rather than `state.t.alpha`!
-            return {status_t::too_many_function_evaluations, state.x.alpha,
-                    state.x.func, state.x.grad, state.num_f_evals};
-        }
-#endif
-
-        // TODO(twesterhout): Handle this properly!
-        if (state.bracketed && state.t.alpha == state.interval.min) {
-            return {status_t::rounding_errors_prevent_progress, state.x.alpha,
-                    state.x.func, state.x.grad, state.num_f_evals};
-        }
+        if (auto r = interval_too_small(); r) { return *r; }
+        if (auto r = too_many_f_evals(); r) { return *r; }
+        if (auto r = rounding_errors(); r) { return *r; }
         assert(!state.bracketed
                || (state.interval.min < state.t.alpha
                    && state.t.alpha < state.interval.max));
-
-#if 0
-        std::tie(state.t.func, state.t.grad) =
-            value_and_gradient(state.t.alpha);
-        ++state.num_f_evals;
-        auto const func_test = func_0 + state.t.alpha * grad_test;
-        LBFGS_TRACE("another function evaluation: αₜ=%f, ф(αₜ)=%f, ф'(αₜ)=%f\n",
-                    state.t.alpha, state.t.func, state.t.grad);
-#endif
-        auto const func_test = evaluate();
-        // (p.292 of J.J. Moré & D.C. Thuente 1994):
-
-        // First case in Theorem 2.2 (p. 292): we reached `αₘₐₓ` and
-        // condition (2.3) holds (i.e. `ψ(αₜ) <= 0` and `ψ'(αₜ) < 0`).
-        if (auto answer = reached_max_step(func_test, grad_test); answer) {
-            return *answer;
-        }
-#if 0
-        if (state.t.alpha == params.step_max && state.t.func <= func_test
-            && state.t.grad <= grad_test) {
-            LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
-                        grad_test);
-            return {status_t::maximum_step_reached, state.t.alpha, state.t.func,
-                    state.t.grad, state.num_f_evals};
-        }
-#endif
-
-        // Second case in Theorem 2.2 (p. 292): we reached `αₘᵢₙ` and
-        // condition (2.4) holds (i.e. `ψ(αₜ) > 0` and `ψ'(αₜ) >= 0`).
-        if (auto answer = reached_min_step(func_test, grad_test); answer) {
-            return *answer;
-        }
-#if 0
-        if (state.t.alpha == params.step_min
-            && (state.t.func > func_test || state.t.grad >= grad_test)) {
-            LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%f >= %f\n", state.t.grad,
-                        grad_test);
-            return {status_t::minimum_step_reached, state.t.alpha, state.t.func,
-                    state.t.grad, state.num_f_evals};
-        }
-#endif
-
-        // Both sufficient decrease (1.1) and curvatuve (1.2) conditions
-        // hold (i.e. `ψ(αₜ) <= 0` and `|ф'(αₜ)| <= η·|ф'(0)|`). We use the
-        // fact that `|ф'(0)| = -ф'(0)`, because `ф'(0) < 0` is a
-        // precondition for the whole algorithm.
-        if (auto r = strong_wolfe(func_test); r) { return *r; }
-#if 0
-        if ((state.t.func <= func_test)
-            && (std::abs(state.t.grad) <= params.g_tol * (-grad_0))) {
-            LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
-                        "    sufficient decrease: %f <= %f\n"
-                        "    curvature condition: %f <= %f\n"
-                        "    %u function evaluations\n",
-                        state.t.func, func_test, std::abs(state.t.grad),
-                        params.g_tol * (-grad_0), state.num_f_evals);
-            return {status_t::success, state.t.alpha, state.t.func,
-                    state.t.grad, state.num_f_evals};
-        }
-#endif
+        evaluate();
+        if (auto r = reached_max_step(); r) { return *r; }
+        if (auto r = reached_min_step(); r) { return *r; }
+        if (auto r = strong_wolfe(); r) { return *r; }
 
         // In the paper, they move to the second stage of the algorithm as
         // soon as an `αₜ` is found which satisfies the conditions of
@@ -861,68 +803,27 @@ auto line_search(Function value_and_gradient, _internal_param_t const& params,
         // `ψ'(αₜ) = ф'(αₜ) - μ·ф'(0)`. So `ψ'(αₜ) >= 0` is equivalent to
         // `ф'(αₜ) >= μ·ф'(0)`. We replace this condition with a slightly
         // stronger one: `ф'(αₜ) >= min(μ, η)·ф'(0)`.
+        auto const func_test =
+            params.func_0 + state.t.alpha * params.f_tol * params.grad_0;
         if (first_stage && (state.t.func <= func_test)
             && (state.t.grad
-                >= std::min(params.f_tol, params.g_tol) * grad_0)) {
+                >= std::min(params.f_tol, params.g_tol) * params.grad_0)) {
             first_stage = false;
         }
 
         if (first_stage && (state.t.func <= state.x.func)
             && (state.t.func > func_test)) {
-
             LBFGS_TRACE("%s", "using modified updating scheme\n");
-            with_modified_function_t context{state, grad_test};
-#if 0
-            struct use_modified_function {
-                state_t&     _s;
-                double const _grad_test;
-
-                constexpr use_modified_function(state_t&     s,
-                                                double const grad_test) noexcept
-                    : _s{s}, _grad_test{grad_test}
-                {
-                    _s.x.func -= _s.x.alpha * _grad_test;
-                    _s.x.grad -= _grad_test;
-                    _s.y.func -= _s.y.alpha * _grad_test;
-                    _s.y.grad -= _grad_test;
-                    _s.t.func -= _s.t.alpha * _grad_test;
-                    _s.t.grad -= _grad_test;
-                }
-
-                ~use_modified_function()
-                {
-                    _s.x.func += _s.x.alpha * _grad_test;
-                    _s.x.grad += _grad_test;
-                    _s.y.func += _s.y.alpha * _grad_test;
-                    _s.y.grad += _grad_test;
-                    assert(std::isnan(_s.t.func));
-                    assert(std::isnan(_s.t.grad));
-                }
-            } dummy{state, grad_test};
-#endif
-            cstep(state);
+            with_modified_function_t context{state,
+                                             params.f_tol * params.grad_0};
+            update_trial_value_and_interval(state);
         }
         else {
             LBFGS_TRACE("%s", "using normal updating scheme\n");
-            cstep(state);
+            update_trial_value_and_interval(state);
         }
 
-        if (state.bracketed) {
-            // Last paragraph of p.292:
-            // <quote>If the algorithm generates an interval I in [αₘᵢₙ,
-            // αₘₐₓ], then we need a third rule to guarantee that the choice
-            // of αₜ forces the length of I to zero. In our implementation
-            // this is done by monitoring the length of I; if the length of
-            // I does not decrease by a factor δ < 1 after two trials, then
-            // a bisection step is used for the next trial αₜ.</quote>
-            constexpr auto delta     = 0.66;
-            auto const     new_width = std::abs(state.y.alpha - state.x.alpha);
-            if (new_width >= delta * width_history.previous) {
-                state.t.alpha =
-                    state.x.alpha + 0.5 * (state.y.alpha - state.x.alpha);
-            }
-            width_history.push(new_width);
-        }
+        ensure_shrinking();
     }
 }
 } // namespace detail
@@ -932,15 +833,14 @@ auto line_search(Function&& value_and_gradient, param_type const& params,
                  float const func_0, float const grad_0,
                  float const alpha_0 = 1.0f) -> result_t
 {
-    auto wrapper = [&value_and_gradient](double const x) {
-        float func, gradient;
-        std::tie(func, gradient) = value_and_gradient(static_cast<float>(x));
-        return std::make_pair(static_cast<double>(func),
-                              static_cast<double>(gradient));
-    };
     auto result = detail::line_search(
-        std::move(wrapper), detail::_internal_param_t{params},
-        static_cast<double>(func_0), static_cast<double>(grad_0),
+        [&value_and_gradient](double const x) {
+            auto const [func, gradient] =
+                value_and_gradient(static_cast<float>(x));
+            return std::make_pair(static_cast<double>(func),
+                                  static_cast<double>(gradient));
+        },
+        detail::_internal_param_t{params, func_0, grad_0},
         static_cast<double>(alpha_0));
     return result;
 }
