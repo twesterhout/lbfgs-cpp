@@ -2,6 +2,7 @@
 #ifndef MORETHUENTE_H_
 #define MORETHUENTE_H_
 
+#include <cassert>
 #include <cmath>
 #include <iostream>
 

@@ -53,6 +53,7 @@ option(LBFGS_BUILD_TESTING "Build tests" ON)
 option(LBFGS_BUILD_EXAMPLES "Build examples" OFF)
 option(LBFGS_ENABLE_COVERAGE "Generate coverage for codecov.io" ON)
 option(LBFGS_INSTALL_DOCS "Install documentation alongside library" ON)
+option(LBFGS_DEBUG "Include assertions" ON)
 
 if(NOT CMAKE_BUILD_TYPE)
     message(STATUS "Setting build type to RelWithDebInfo, use \
@@ -83,6 +84,13 @@ add_library(Common INTERFACE)
 target_include_directories(Common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(Common INTERFACE cxx_std_17)
 target_compile_options(Common INTERFACE "${LBFGS_WARNING_FLAGS}")
+if (LBFGS_DEBUG)
+    target_compile_definitions(Common INTERFACE LBFGS_DEBUG=1)
+endif()
+
+add_library(lbfgs SHARED src/lbfgs.cpp)
+target_link_libraries(lbfgs Common)
+
 
 CHECK_CXX_COMPILER_FLAG("-fvisibility=hidden" LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
 if(LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
@@ -98,7 +106,7 @@ endif()
 
 
 add_executable(line_search example/line_search.cpp)
-target_link_libraries(line_search PUBLIC Common)
+target_link_libraries(line_search PUBLIC lbfgs)
 
 # if (TRUE)
 #     target_compile_options(line_search PUBLIC "-fprofile-instr-generate" "-fcoverage-mapping")

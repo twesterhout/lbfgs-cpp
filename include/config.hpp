@@ -29,19 +29,19 @@
 #pragma once
 
 #if defined(__clang__)
-#    define LBFGSCPP_CLANG                                                     \
+#    define LBFGS_CLANG                                                        \
         (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
-#    define LBFGSCPP_ASSUME(cond) __builtin_assume(cond)
+#    define LBFGS_ASSUME(cond) __builtin_assume(cond)
 #elif defined(__GNUC__)
-#    define LBFGSCPP_GCC                                                       \
+#    define LBFGS_GCC                                                          \
         (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#    define LBFGSCPP_ASSUME(cond)                                              \
+#    define LBFGS_ASSUME(cond)                                                 \
         do {                                                                   \
             if (!(cond)) __builtin_unreachable();                              \
         } while (false)
 #elif defined(_MSV_VER)
-#    define LBFGSCPP_MSVC _MSV_VER
-#    define LBFGSCPP_ASSUME(cond)                                              \
+#    define LBFGS_MSVC _MSV_VER
+#    define LBFGS_ASSUME(cond)                                                 \
         do {                                                                   \
         } while (false)
 #else
@@ -54,10 +54,16 @@
 #    define LBFGS_EXPORT __declspec(dllexport)
 #    define LBFGS_NOINLINE __declspec(noinline)
 #    define LBFGS_FORCEINLINE __forceinline inline
+#    define LBFGS_LIKELY(cond) (cond)
+#    define LBFGS_UNLIKELY(cond) (cond)
+#    define LBFGS_CURRENT_FUNCTION __FUNCTION__
 #else
 #    define LBFGS_EXPORT __attribute__((visibility("default")))
 #    define LBFGS_NOINLINE __attribute__((noinline))
 #    define LBFGS_FORCEINLINE __attribute__((always_inline)) inline
+#    define LBFGS_LIKELY(cond) __builtin_expect(!!(cond), 1)
+#    define LBFGS_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
+#    define LBFGS_CURRENT_FUNCTION __PRETTY_FUNCTION__
 #endif
 
 #define LBFGS_NAMESPACE tcm::lbfgs
@@ -74,3 +80,40 @@
             stderr, "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m " fmt, \
             __FILE__, __LINE__, __VA_ARGS__);                                  \
     } while (false)
+
+// clang-format off
+#define LBFGS_BUG_MESSAGE                                                    \
+    "╔═════════════════════════════════════════════════════════════════╗\n"  \
+    "║       Congratulations, you have found a bug in lbfgs-cpp!       ║\n"  \
+    "║              Please, be so kind to submit it here               ║\n"  \
+    "║         https://github.com/twesterhout/lbfgs-cpp/issues         ║\n"  \
+    "╚═════════════════════════════════════════════════════════════════╝"
+// clang-format on
+
+#if defined(LBFGS_CLANG)
+// Clang refuses to display newlines in static_asserts
+#    define LBFGS_STATIC_ASSERT_BUG_MESSAGE                                    \
+        "Congratulations, you have found a bug in lbfgs-cpp! Please, be so "   \
+        "kind to submit it to "                                                \
+        "https://github.com/twesterhout/lbfgs-cpp/issues."
+#else
+#    define TCM_STATIC_ASSERT_BUG_MESSAGE "\n" TCM_BUG_MESSAGE
+#endif
+
+LBFGS_NAMESPACE_BEGIN
+namespace detail {
+[[noreturn]] auto assert_fail(char const* expr, char const* file, unsigned line,
+                              char const* function, char const* msg) noexcept
+    -> void;
+} // namespace detail
+LBFGS_NAMESPACE_END
+
+#if defined(LBFGS_DEBUG)
+#    define LBFGS_ASSERT(cond, msg)                                            \
+        (LBFGS_LIKELY(cond)                                                    \
+             ? static_cast<void>(0)                                            \
+             : ::LBFGS_NAMESPACE::detail::assert_fail(                         \
+                 #cond, __FILE__, __LINE__, LBFGS_CURRENT_FUNCTION, msg))
+#else
+#    define LBFGS_ASSERT(cond, msg) static_cast<void>(0)
+#endif

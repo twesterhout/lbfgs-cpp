@@ -263,15 +263,15 @@ TEST_CASE("Function (5.3)", "[line_search]")
         constexpr auto l    = 39.0f;
         constexpr auto beta = 0.01f;
         constexpr auto pi   = static_cast<float>(M_PI);
-        auto const     f_0  = [beta](auto const x) {
-            if (x <= 1.0f - beta) return 1.0f - x;
-            if (x >= 1.0f + beta) return x - 1.0f;
-            return (x - 1.0f) * (x - 1.0f) / (2.0f * beta) + beta / 2;
+        auto const     f_0  = [beta](auto const _x) {
+            if (_x <= 1.0f - beta) return 1.0f - _x;
+            if (_x >= 1.0f + beta) return _x - 1.0f;
+            return (_x - 1.0f) * (_x - 1.0f) / (2.0f * beta) + beta / 2;
         };
-        auto const g_0 = [beta](auto const x) {
-            if (x <= 1.0f - beta) return -1.0f;
-            if (x >= 1.0f + beta) return 1.0f;
-            return (x - 1.0f) / beta;
+        auto const g_0 = [beta](auto const _x) {
+            if (_x <= 1.0f - beta) return -1.0f;
+            if (_x >= 1.0f + beta) return 1.0f;
+            return (_x - 1.0f) / beta;
         };
         auto const func =
             f_0(x)
