@@ -113,7 +113,8 @@ LBFGS_NAMESPACE_END
         (LBFGS_LIKELY(cond)                                                    \
              ? static_cast<void>(0)                                            \
              : ::LBFGS_NAMESPACE::detail::assert_fail(                         \
-                 #cond, __FILE__, __LINE__, LBFGS_CURRENT_FUNCTION, msg))
+                 #cond, __FILE__, __LINE__,                                    \
+                 static_cast<char const*>(LBFGS_CURRENT_FUNCTION), msg))
 #else
 #    define LBFGS_ASSERT(cond, msg) static_cast<void>(0)
 #endif

@@ -1,0 +1,6 @@
+---
+Checks: '*,-fuchsia-trailing-return,-fuchsia-default-arguments'
+WarningsAsErrors: '*'
+HeaderFilterRegex: ''
+AnalyzeTemporaryDtors: true
+...

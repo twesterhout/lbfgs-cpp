@@ -6,10 +6,18 @@ LBFGS_NAMESPACE_BEGIN
 
 namespace { // anonymous namespace
 struct lbfgs_error_category : public std::error_category {
-    auto name() const noexcept -> char const* override;
-    auto message(int const value) const -> std::string override;
+    constexpr lbfgs_error_category() noexcept = default;
+
+    lbfgs_error_category(lbfgs_error_category const&) = delete;
+    lbfgs_error_category(lbfgs_error_category&&)      = delete;
+    lbfgs_error_category& operator=(lbfgs_error_category const&) = delete;
+    lbfgs_error_category& operator=(lbfgs_error_category&&) = delete;
+
     ~lbfgs_error_category() override = default;
-    static auto instance() noexcept -> std::error_category const&;
+
+    [[nodiscard]] auto name() const noexcept -> char const* override;
+    [[nodiscard]] auto message(int value) const -> std::string override;
+    static auto        instance() noexcept -> std::error_category const&;
 };
 
 auto lbfgs_error_category::name() const noexcept -> char const*
@@ -34,13 +42,30 @@ auto lbfgs_error_category::message(int const value) const -> std::string
     case status_t::invalid_function_tolerance: return "invalid parameter μ";
     case status_t::invalid_gradient_tolerance: return "invalid parameter η";
     case status_t::invalid_step_bounds: return "invalid interval [αₘᵢₙ, αₘₐₓ]";
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wcovered-switch-default"
+#endif
+    // NOTE: We do want the default case, because the user could have constructed an
+    // invalid error code using our category
+    // NOLINTNEXTLINE
     default: return "(unrecognised error)";
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
     } // end switch
 }
 
 auto lbfgs_error_category::instance() noexcept -> std::error_category const&
 {
-    static lbfgs_error_category c;
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wexit-time-destructors"
+#endif
+    static lbfgs_error_category c; // NOLINT
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
     return c;
 }
 } // namespace
@@ -56,6 +81,7 @@ namespace detail {
                                            unsigned line, char const* function,
                                            char const* msg) noexcept -> void
 {
+    // NOLINTNEXTLINE
     std::fprintf(stderr,
                  LBFGS_BUG_MESSAGE
                  "\n\x1b[1m\x1b[91mAssertion failed\x1b[0m at %s:%u: %s: "
@@ -83,8 +109,9 @@ namespace {
                                    < std::abs(quadratic - state.x.alpha)
                                ? cubic
                                : cubic + 0.5 * (quadratic - cubic);
-        LBFGS_TRACE("case_1: α_c=%f, α_q=%f -> α=%f\n", cubic, quadratic,
-                    alpha);
+        LBFGS_TRACE("case_1: α_c=%f, α_q=%f -> α=%f\n", cubic, // NOLINT
+                    quadratic,                                 // NOLINT
+                    alpha);                                    // NOLINT
         return {alpha, /*bracketed=*/true, /*bound=*/true};
     }
 
@@ -107,7 +134,8 @@ namespace {
             std::abs(cubic - state.t.alpha) >= std::abs(secant - state.t.alpha)
                 ? cubic
                 : secant;
-        LBFGS_TRACE("case_2: α_c=%f, α_s=%f -> α=%f\n", cubic, secant, alpha);
+        LBFGS_TRACE("case_2: α_c=%f, α_s=%f -> α=%f\n", cubic, secant, // NOLINT
+                    alpha);                                            // NOLINT
         return {alpha, /*bracketed=*/true, /*bound=*/false};
     }
 
@@ -132,17 +160,18 @@ namespace {
             auto result = std::tuple{condition ? cubic : secant,
                                      /*bracketed=*/state.bracketed,
                                      /*bound=*/true};
-            LBFGS_TRACE(
-                "case_3 (true): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n",
-                state.x.alpha, state.t.alpha, cubic, secant,
-                std::get<0>(result));
+            LBFGS_TRACE( // NOLINT
+                "case_3 (true): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n", // NOLINT
+                state.x.alpha, state.t.alpha, cubic, secant, // NOLINT
+                std::get<0>(result));                        // NOLINT
             return result;
         }
         auto result =
             std::tuple{secant, /*bracketed=*/state.bracketed, /*bound=*/true};
-        LBFGS_TRACE("case_3 (false): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n",
-                    state.x.alpha, state.t.alpha, cubic, secant,
-                    std::get<0>(result));
+        LBFGS_TRACE( // NOLINT
+            "case_3 (false): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n", // NOLINT
+            state.x.alpha, state.t.alpha, cubic, secant, // NOLINT
+            std::get<0>(result));                        // NOLINT
         return result;
     }
 
@@ -158,7 +187,8 @@ namespace {
                     /*df_b=*/state.y.grad)
                 : std::copysign(std::numeric_limits<float>::infinity(),
                                 state.t.alpha - state.x.alpha);
-        LBFGS_TRACE("case_4: α=%f\n", alpha);
+        LBFGS_TRACE("case_4: α=%f\n", // NOLINT
+                    alpha);           // NOLINT
         return {alpha, /*bracketed=*/state.bracketed, /*bound=*/false};
     }
 
@@ -184,8 +214,8 @@ LBFGS_EXPORT auto update_trial_value_and_interval(state_t& state) noexcept
             || (std::min(state.x.alpha, state.y.alpha) < state.t.alpha
                 && state.t.alpha < std::max(state.x.alpha, state.y.alpha)),
         "αₜ ∉ I");
-    LBFGS_ASSERT(state.x.grad * (state.t.alpha - state.x.alpha) < 0.0,
-                 "wrong search direction");
+    LBFGS_ASSERT(state.x.grad * (state.t.alpha - state.x.alpha) < 0.0, // NOLINT
+                 "wrong search direction");                            // NOLINT
     bool   bound;
     double alpha;
     std::tie(alpha, state.bracketed, bound) = handle_cases(state);
@@ -195,13 +225,15 @@ LBFGS_EXPORT auto update_trial_value_and_interval(state_t& state) noexcept
         if (state.x.grad * state.t.grad <= 0.0) { state.y = state.x; }
         state.x = state.t;
     }
-    LBFGS_TRACE("cstep: new α_l=%f, α_u=%f\n", state.x.alpha, state.y.alpha);
+    LBFGS_TRACE("cstep: new α_l=%f, α_u=%f\n", state.x.alpha, // NOLINT
+                state.y.alpha);                               // NOLINT
     alpha = std::clamp(alpha, state.interval.min(), state.interval.max());
     if (state.bracketed && bound) {
         auto const middle =
             state.x.alpha + 0.66 * (state.y.alpha - state.x.alpha);
-        LBFGS_TRACE("cstep: bracketed && bound: α=%f, middle=%f\n", alpha,
-                    middle);
+        LBFGS_TRACE("cstep: bracketed && bound: α=%f, middle=%f\n", // NOLINT
+                    alpha,                                          // NOLINT
+                    middle);                                        // NOLINT
         alpha = (state.x.alpha < state.y.alpha) ? std::min(middle, alpha)
                                                 : std::max(middle, alpha);
     }

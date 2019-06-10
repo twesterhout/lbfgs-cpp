@@ -69,7 +69,7 @@ CHECK_CXX_COMPILER_FLAG("-march=native" COMPILER_OPT_NATIVE_SUPPORTED)
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     set(LBFGS_WARNING_FLAGS -Weverything -Wno-c++98-compat -Wno-c++98-compat-pedantic
         -Wno-c++98-c++11-c++14-compat -Wno-unused -Wno-documentation-unknown-command
-        -Wno-global-constructors -Wno-float-equal -Wno-padded
+        -Wno-float-equal -Wno-padded
         )
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(LBFGS_WARNING_FLAGS -pedantic -W -Wall -Wextra -Wcast-align -Wcast-qual
