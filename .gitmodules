@@ -1,3 +1,9 @@
 [submodule "third_party/Catch2"]
 	path = third_party/Catch2
 	url = https://github.com/catchorg/Catch2
+[submodule "third_party/gsl-lite"]
+	path = third_party/gsl-lite
+	url = https://github.com/martinmoene/gsl-lite
+[submodule "third_party/SG14"]
+	path = third_party/SG14
+	url = https://github.com/WG21-SG14/SG14
