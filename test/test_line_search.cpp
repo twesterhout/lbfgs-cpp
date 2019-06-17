@@ -67,7 +67,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -80,7 +80,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -93,7 +93,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -106,7 +106,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -119,7 +119,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -130,7 +130,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -141,7 +141,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-4f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -153,7 +153,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-4f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -166,7 +166,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-4f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -178,7 +178,7 @@ TEST_CASE("Function (5.1)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-4f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -204,7 +204,7 @@ TEST_CASE("Function (5.2)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -220,7 +220,7 @@ TEST_CASE("Function (5.2)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -233,7 +233,7 @@ TEST_CASE("Function (5.2)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -246,7 +246,7 @@ TEST_CASE("Function (5.2)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -285,7 +285,7 @@ TEST_CASE("Function (5.3)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -298,7 +298,7 @@ TEST_CASE("Function (5.3)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -311,7 +311,7 @@ TEST_CASE("Function (5.3)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -324,7 +324,7 @@ TEST_CASE("Function (5.3)", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-1f;
         params.g_tol = 1e-1f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -359,7 +359,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -372,7 +372,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -385,7 +385,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -398,7 +398,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -433,7 +433,7 @@ TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -446,7 +446,7 @@ TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -459,7 +459,7 @@ TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -472,7 +472,7 @@ TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -507,7 +507,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.001f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -520,7 +520,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/0.1f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -533,7 +533,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/10.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
@@ -546,7 +546,7 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
         ::LBFGS_NAMESPACE::param_type params;
         params.f_tol = 1e-3f;
         params.g_tol = 1e-3f;
-        auto const [status, alpha, _, grad, num_f_evals] =
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                            grad_0, /*alpha_0=*/1000.0f);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);

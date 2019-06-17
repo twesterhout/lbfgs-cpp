@@ -15,6 +15,8 @@
 #include <unistd.h>
 #include <cstdio>
 
+#include <iostream>
+
 LBFGS_NAMESPACE_BEGIN
 
 // ========================== Public Interface ============================= {{{
@@ -33,12 +35,21 @@ enum class status_t {
 };
 
 struct param_type {
-    float    x_tol       = 1e-8f;
-    float    f_tol       = 1e-4f;
-    float    g_tol       = 1e-3f;
-    float    step_min    = 1e-8f;
-    float    step_max    = 1e8f;
-    unsigned max_f_evals = 20;
+    float    x_tol;
+    float    f_tol;
+    float    g_tol;
+    float    step_min;
+    float    step_max;
+    unsigned max_f_evals;
+
+    constexpr param_type() noexcept
+        : x_tol{1e-8f}
+        , f_tol{1e-4f}
+        , g_tol{1e-3f}
+        , step_min{1e-8f}
+        , step_max{1e8f}
+        , max_f_evals{20}
+    {}
 };
 
 struct result_t {
@@ -47,6 +58,13 @@ struct result_t {
     float    func;
     float    grad;
     unsigned num_f_evals;
+    ///< Line search is typically used as part of other non-linear optimisation
+    ///< algorithms. There gradient is a (possibly) high-dimensional vector. The
+    ///< user may want to cache the last computed gradient for further use.
+    ///< #cached attribute indicated whether the last function evaluation
+    ///< was at #step. In other words, `cached == true` means the user can
+    ///< safely reuse the last computed gradient.
+    bool cached;
 };
 
 template <class Function>
@@ -149,12 +167,6 @@ struct internal_result_t {
     double   func;        ///< ф(α)
     double   grad;        ///< ф'(α)
     unsigned num_f_evals; ///< Number of times the ф was called
-
-    constexpr operator result_t() const noexcept
-    {
-        return {status, static_cast<float>(step), static_cast<float>(func),
-                static_cast<float>(grad), num_f_evals};
-    }
 };
 
 /// \brief Checks the user-provided parameters for sanity.
@@ -197,8 +209,8 @@ struct internal_param_t {
     /// This constructor performs sanity checks (see #check_parameters). So if
     /// it succeeds it's safe to assume that parameters satisfy all the
     /// preconditions.
-    constexpr internal_param_t(param_type const& p, float const _func_0,
-                               float const _grad_0) noexcept
+    internal_param_t(param_type const& p, float const _func_0,
+                     float const _grad_0) noexcept
         : x_tol{static_cast<double>(p.x_tol)}
         , f_tol{static_cast<double>(p.f_tol)}
         , g_tol{static_cast<double>(p.g_tol)}
@@ -208,6 +220,8 @@ struct internal_param_t {
         , func_0{static_cast<double>(_func_0)}
         , grad_0{static_cast<double>(_grad_0)}
     {
+        auto code = make_error_code(check_parameters(p, _func_0, _grad_0));
+        std::cerr << code.message() << '\n';
         LBFGS_ASSERT(check_parameters(p, _func_0, _grad_0) == status_t::success,
                      "invalid parametes");
     }
@@ -754,8 +768,10 @@ auto line_search(
                                                    std::declval<float>())))
     -> result_t
 {
-    auto result = detail::line_search(
-        [&value_and_gradient](double const x) {
+    double cached = std::numeric_limits<double>::quiet_NaN();
+    auto   r      = detail::line_search(
+        [&value_and_gradient, &cached](double const x) {
+            cached = x;
             auto const [func, gradient] =
                 value_and_gradient(static_cast<float>(x));
             return std::make_pair(static_cast<double>(func),
@@ -763,7 +779,12 @@ auto line_search(
         },
         detail::internal_param_t{params, func_0, grad_0},
         static_cast<double>(alpha_0));
-    return result;
+    return {r.status,
+            static_cast<float>(r.step),
+            static_cast<float>(r.func),
+            static_cast<float>(r.grad),
+            r.num_f_evals,
+            cached == r.step};
 }
 
 LBFGS_NAMESPACE_END

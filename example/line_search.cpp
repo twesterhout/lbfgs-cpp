@@ -67,7 +67,7 @@ int main()
     ::LBFGS_NAMESPACE::param_type params;
     params.f_tol = 1e-3f;
     params.g_tol = 1e-3f;
-    auto const [status, alpha, func, grad, num_f_evals] =
+    auto const [status, alpha, func, grad, num_f_evals, _unused] =
         ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
                                        grad_0, 0.1f);
     std::cout << static_cast<int>(status) << '\t' << alpha << '\n';
