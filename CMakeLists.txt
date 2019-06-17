@@ -80,10 +80,25 @@ elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
         -Wstrict-overflow=1 -Wswitch-default -Wundef -Wno-unused)
 endif()
 
+execute_process(COMMAND git submodule update --init -- third_party/gsl-lite
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(gsl_lite INTERFACE)
+target_include_directories(gsl_lite INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gsl-lite/include)
+
+execute_process(COMMAND git submodule update --init -- third_party/SG14
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(SG14 INTERFACE)
+target_include_directories(SG14 INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/SG14)
+
+find_package(BLAS REQUIRED)
+
 add_library(Common INTERFACE)
 target_include_directories(Common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(Common INTERFACE cxx_std_17)
 target_compile_options(Common INTERFACE "${LBFGS_WARNING_FLAGS}")
+target_link_libraries(Common INTERFACE gsl_lite SG14)
 if (LBFGS_DEBUG)
     target_compile_definitions(Common INTERFACE LBFGS_DEBUG=1)
 endif()
@@ -108,10 +123,17 @@ endif()
 add_executable(line_search example/line_search.cpp)
 target_link_libraries(line_search PUBLIC lbfgs)
 
+add_executable(lbfgs_example example/lbfgs.cpp)
+target_link_libraries(lbfgs_example PUBLIC lbfgs ${BLAS_LIBRARIES})
+
 # if (TRUE)
 #     target_compile_options(line_search PUBLIC "-fprofile-instr-generate" "-fcoverage-mapping")
 #     target_link_libraries(line_search PUBLIC "-fprofile-instr-generate" "-fcoverage-mapping")
 # endif()
+
+
+
+
 
 if (BUILD_TESTING AND LBFGS_BUILD_TESTING AND NOT_SUBPROJECT)
     execute_process(COMMAND git submodule update --init -- third_party/Catch2
