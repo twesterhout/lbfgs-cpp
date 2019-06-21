@@ -108,6 +108,16 @@ namespace detail {
 } // namespace detail
 LBFGS_NAMESPACE_END
 
+namespace gsl {
+[[noreturn]] inline auto
+fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
+                         int const line) noexcept -> void
+{
+    ::LBFGS_NAMESPACE::detail::assert_fail(
+        expr, file, static_cast<unsigned>(line), "", msg);
+}
+} // namespace gsl
+
 #if defined(LBFGS_DEBUG)
 #    define LBFGS_ASSERT(cond, msg)                                            \
         (LBFGS_LIKELY(cond)                                                    \
@@ -118,3 +128,5 @@ LBFGS_NAMESPACE_END
 #else
 #    define LBFGS_ASSERT(cond, msg) static_cast<void>(0)
 #endif
+
+#define LBFGS_USE_BLAS

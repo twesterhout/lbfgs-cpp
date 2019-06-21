@@ -82,9 +82,19 @@ endif()
 
 execute_process(COMMAND git submodule update --init -- third_party/gsl-lite
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-add_library(gsl_lite INTERFACE)
-target_include_directories(gsl_lite INTERFACE
+add_library(gsl-lite INTERFACE)
+target_include_directories(gsl-lite INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/gsl-lite/include)
+string(TOUPPER "${CMAKE_BUILD_TYPE}" _TCM_BUILD_TYPE)
+if("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
+    target_compile_definitions(gsl-lite INTERFACE
+        gsl_CONFIG_CONTRACT_VIOLATION_CALLS_HANDLER=1)
+else()
+    target_compile_definitions(gsl-lite INTERFACE
+        gsl_CONFIG_CONTRACT_LEVEL_OFF=1)
+    message(STATUS "Disabling GSL contracts")
+endif()
+
 
 execute_process(COMMAND git submodule update --init -- third_party/SG14
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
@@ -98,7 +108,7 @@ add_library(Common INTERFACE)
 target_include_directories(Common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(Common INTERFACE cxx_std_17)
 target_compile_options(Common INTERFACE "${LBFGS_WARNING_FLAGS}")
-target_link_libraries(Common INTERFACE gsl_lite SG14)
+target_link_libraries(Common INTERFACE gsl-lite)
 if (LBFGS_DEBUG)
     target_compile_definitions(Common INTERFACE LBFGS_DEBUG=1)
 endif()
