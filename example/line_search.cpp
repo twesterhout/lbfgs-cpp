@@ -64,13 +64,13 @@ int main()
         cppoptlib::MoreThuente<void, 0>::linesearch(value_and_gradient, 0.1f);
     std::cout << result_2 << '\n';
 
-    ::LBFGS_NAMESPACE::param_type params;
+    ::LBFGS_NAMESPACE::ls_param_t params{};
     params.f_tol = 1e-3f;
     params.g_tol = 1e-3f;
     auto const [status, alpha, func, grad, num_f_evals, _unused] =
-        ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                       grad_0, 0.1f);
-    std::cout << static_cast<int>(status) << '\t' << alpha << '\n';
+        ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                       params.at_zero(func_0, grad_0), 0.1f);
+    std::cout << make_error_code(status).message() << '\t' << alpha << '\n';
 
 #endif
 }

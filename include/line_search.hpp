@@ -22,6 +22,7 @@ LBFGS_NAMESPACE_BEGIN
 // ========================== Public Interface ============================= {{{
 enum class status_t {
     success = 0,
+    too_many_iterations,
     invalid_argument,
     rounding_errors_prevent_progress,
     maximum_step_reached,
@@ -34,48 +35,85 @@ enum class status_t {
     invalid_step_bounds,
 };
 
-struct param_type {
-    float    x_tol;
-    float    f_tol;
-    float    g_tol;
-    float    step_min;
-    float    step_max;
+/// Parameters for the More-Thuente line search algorithm.
+struct ls_param_t {
+    /// Search interval length threshold.
+    ///
+    /// The line search algorithm will stop if the search interval shrinks
+    /// below this threshold.
+    ///
+    /// \see detail::interval_too_small_fn
+    double x_tol;
+    /// Parameter μ in the sufficient decrease condition
+    /// (`ф(α) <= ф(0) + μ·α·ф'(0)`)
+    ///
+    /// \see detail::strong_wolfe_fn
+    double f_tol;
+    /// Parameter η in the curvature condition
+    /// (`|ф'(α)| <= η·|ф'(0)|`)
+    ///
+    /// \see detail::strong_wolfe_fn
+    double g_tol;
+    /// Lower bound for the step size α.
+    double step_min;
+    /// Upper bound for the step size α.
+    double step_max;
+    /// Maximum number of function evaluations.
     unsigned max_f_evals;
+    /// Function value at `α = 0` (i.e. `ф(0)`)
+    double func_0;
+    /// Derivative at `α = 0` (i.e. `ф(0)`)
+    double grad_0;
 
-    constexpr param_type() noexcept
-        : x_tol{1e-8f}
-        , f_tol{1e-4f}
-        , g_tol{1e-3f}
-        , step_min{1e-8f}
-        , step_max{1e8f}
+    /// Some sane defaults for More-Thuente line search algorithm.
+    constexpr ls_param_t() noexcept
+        : x_tol{1e-8}
+        , f_tol{1e-4}
+        , g_tol{0.9}
+        , step_min{1e-8}
+        , step_max{1e8}
         , max_f_evals{20}
+        , func_0{std::numeric_limits<double>::quiet_NaN()}
+        , grad_0{std::numeric_limits<double>::quiet_NaN()}
     {}
+
+    /// A convenience function for setting the initial state.
+    ///
+    /// A common use case is to pass `ls_param_t{}.at_zero(my_value,
+    /// my_grad)` to the line search algorithm.
+    constexpr auto at_zero(double const func, double const grad) noexcept
+        -> ls_param_t&
+    {
+        func_0 = func;
+        grad_0 = grad;
+        return *this;
+    }
 };
 
-struct result_t {
-    status_t status;
-    float    step;
-    float    func;
-    float    grad;
-    unsigned num_f_evals;
-    ///< Line search is typically used as part of other non-linear optimisation
-    ///< algorithms. There gradient is a (possibly) high-dimensional vector. The
-    ///< user may want to cache the last computed gradient for further use.
-    ///< #cached attribute indicated whether the last function evaluation
-    ///< was at #step. In other words, `cached == true` means the user can
-    ///< safely reuse the last computed gradient.
+struct ls_result_t {
+    status_t status;      ///< Termination status
+    double   step;        ///< Final step size: `α`
+    double   func;        ///< Function value at #step: `ф(α)`
+    double   grad;        ///< Derivative at #step: `ф'(α)`
+    unsigned num_f_evals; ///< Number of function evaluations during
+                          ///< the optimisation procedure.
+    /// Line search is typically used as part of other non-linear optimisation
+    /// algorithms. There gradient is a (possibly) high-dimensional vector. The
+    /// user may want to cache the last computed gradient for further use.
+    /// #cached attribute indicated whether the last function evaluation
+    /// was at #step. In other words, `cached == true` means the user can
+    /// safely reuse the last computed gradient.
     bool cached;
 };
 
 template <class Function>
 LBFGS_NOINLINE auto
-line_search(Function&& value_and_gradient, param_type const& params,
-            float const func_0, float const grad_0,
-            float const alpha_0 =
-                1.0f) noexcept(noexcept(std::
-                                            declval<Function&&>()(
-                                                std::declval<float>())))
-    -> result_t;
+line_search(Function&& value_and_gradient, ls_param_t const& params,
+            double const alpha_0 =
+                1.0) noexcept(noexcept(std::
+                                           declval<Function&>()(
+                                               std::declval<double>())))
+    -> ls_result_t;
 
 // ========================== Public Interface ============================= }}}
 
@@ -97,9 +135,7 @@ namespace detail {
 
 /// \brief Line search interval `I`.
 ///
-/// #interval_t tries to maintain the property that `min <= max`. It should thus
-/// be only updated using assignment operator. I.e. do not write to #min and
-/// #max directly!
+/// #interval_t maintains the property that `min() <= max()`.
 class interval_t {
   private:
     double _min; ///< Lower bound
@@ -116,12 +152,24 @@ class interval_t {
     /// \brief Creates an empty interval
     constexpr interval_t() noexcept : interval_t{0.0, 0.0} {}
 
-    /// \brief Updates the search interval from the current state
-    constexpr interval_t(double x, double y, double t, bool bracketed) noexcept
+    /// \brief Updates the search interval using the current state
+    ///
+    /// \param x is \f$\alpha_x\f$
+    /// \param y is \f$\alpha_y\f$
+    /// \param t is \f$\alpha_t\f$
+    /// \param bracketed whether the search interval has been bracketed (i.e. we
+    /// know that `t` belongs to the search interval).
+    constexpr interval_t(double const x, double const y, double const t,
+                         bool const bracketed) noexcept
         : interval_t{}
     {
-        if (bracketed) { std::tie(_min, _max) = std::minmax(x, y); }
+        if (bracketed) {
+            LBFGS_ASSERT(std::min(x, y) <= t && t <= std::max(x, y),
+                         "invalid αₜ");
+            std::tie(_min, _max) = std::minmax(x, y);
+        }
         else {
+            // See the explanation around eq. (2.2) on p. 291
             _min = x;
             _max = t + 4.0 * (t - x);
             LBFGS_ASSERT(_min <= _max, "invalid interval");
@@ -148,7 +196,7 @@ struct endpoint_t {
 };
 
 /// \brief Internal state of the line search algorithm.
-struct state_t {
+struct ls_state_t {
     endpoint_t x;           ///< Endpoint with the least function value
     endpoint_t y;           ///< The other endpoint
     endpoint_t t;           ///< Trial value
@@ -157,85 +205,29 @@ struct state_t {
     unsigned   num_f_evals; ///< Current number of function evaluations
 };
 
-/// \brief Result of the main loop.
-///
-/// Very similar to #result_t except that `double`s are used instead of
-/// `float`s since all internal computations are done in double precision.
-struct internal_result_t {
-    status_t status;      ///< Termination status
-    double   step;        ///< α
-    double   func;        ///< ф(α)
-    double   grad;        ///< ф'(α)
-    unsigned num_f_evals; ///< Number of times the ф was called
-};
-
 /// \brief Checks the user-provided parameters for sanity.
 ///
 /// If no problems with the input parameters can be found, #status_t::success is
 /// returned. Otherwise, the #status_t returned indicated the error.
-constexpr auto check_parameters(param_type const& p, float const func_0,
-                                float const grad_0) noexcept -> status_t
+constexpr auto check_parameters(ls_param_t const& p) noexcept -> status_t
 {
-    if (std::isnan(p.x_tol) || p.x_tol <= 0.0f)
+    if (std::isnan(p.x_tol) || p.x_tol <= 0.0)
         return status_t::invalid_interval_tolerance;
-    if (std::isnan(p.f_tol) || p.f_tol <= 0.0f || p.f_tol >= 1.0f)
+    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0)
         return status_t::invalid_function_tolerance;
-    if (std::isnan(p.g_tol) || p.g_tol <= 0.0f || p.g_tol >= 1.0f)
+    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0)
         return status_t::invalid_gradient_tolerance;
-    if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0f
+    if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0
         || p.step_max <= p.step_min)
         return status_t::invalid_step_bounds;
-    if (std::isnan(func_0) || std::isnan(grad_0) || grad_0 >= 0.0f)
+    if (std::isnan(p.func_0) || std::isnan(p.grad_0) || p.grad_0 >= 0.0)
         return status_t::invalid_argument;
     return status_t::success;
 }
 
-/// \brief Parameters for internal usage
-///
-/// Very similar to #param_t except that `double`s are used instead of
-/// `float`s since all internal computations are done in double precision.
-struct internal_param_t {
-    double const   x_tol;
-    double const   f_tol;
-    double const   g_tol;
-    double const   step_min;
-    double const   step_max;
-    unsigned const max_f_evals;
-    double const   func_0;
-    double const   grad_0;
-
-    /// Converts user-defined parameters to internal ones.
-    ///
-    /// This constructor performs sanity checks (see #check_parameters). So if
-    /// it succeeds it's safe to assume that parameters satisfy all the
-    /// preconditions.
-    internal_param_t(param_type const& p, float const _func_0,
-                     float const _grad_0) noexcept
-        : x_tol{static_cast<double>(p.x_tol)}
-        , f_tol{static_cast<double>(p.f_tol)}
-        , g_tol{static_cast<double>(p.g_tol)}
-        , step_min{static_cast<double>(p.step_min)}
-        , step_max{static_cast<double>(p.step_max)}
-        , max_f_evals{p.max_f_evals}
-        , func_0{static_cast<double>(_func_0)}
-        , grad_0{static_cast<double>(_grad_0)}
-    {
-        auto code = make_error_code(check_parameters(p, _func_0, _grad_0));
-        std::cerr << code.message() << '\n';
-        LBFGS_ASSERT(check_parameters(p, _func_0, _grad_0) == status_t::success,
-                     "invalid parametes");
-    }
-
-    internal_param_t()                        = delete;
-    internal_param_t(internal_param_t const&) = delete;
-    internal_param_t(internal_param_t&&)      = delete;
-    internal_param_t& operator=(internal_param_t const&) = delete;
-    internal_param_t& operator=(internal_param_t&&) = delete;
-};
-
 // ========================= Some data structures ========================== }}}
 
-auto update_trial_value_and_interval(state_t& state) noexcept -> void;
+auto update_trial_value_and_interval(ls_state_t& state) noexcept -> void;
 
 /// Using Maple
 ///
@@ -413,16 +405,16 @@ inline auto minimise_cubic_interpolation(double const a, double const f_a,
 }
 
 struct interval_too_small_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
     /// \brief Checks whether the search interval has shrunk below the threshold
     /// which is given by #params.x_tol.
     ///
     /// If the interval is indeed too small, #result is set to the best state
     /// obtained so far and a pointer to it is returned.
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
         if (state.bracketed
             && (state.interval.length()
@@ -430,8 +422,12 @@ struct interval_too_small_fn {
             LBFGS_TRACE("interval too small: %f <= %f", state.interval.length(),
                         params.x_tol * state.interval.max());
             // NOTE: We return αₓ rather than αₜ!
-            result = {status_t::interval_too_small, state.x.alpha, state.x.func,
-                      state.x.grad, state.num_f_evals};
+            result = {status_t::interval_too_small,
+                      state.x.alpha,
+                      state.x.func,
+                      state.x.grad,
+                      state.num_f_evals,
+                      false};
             return &result;
         }
         return nullptr;
@@ -439,9 +435,9 @@ struct interval_too_small_fn {
 };
 
 struct too_many_f_evals_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
     /// \brief Checks whether all available function evaluations (i.e.
     /// #params.max_f_evals) have been exhausted.
@@ -449,15 +445,19 @@ struct too_many_f_evals_fn {
     /// If we have already evaluated the user-defined `f` #params.max_f_evals
     /// times, #result is set to the best state obtained so far and a pointer to
     /// it is returned.
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
         LBFGS_ASSERT(state.num_f_evals <= params.max_f_evals, "invalid state");
         if (state.num_f_evals == params.max_f_evals) {
             LBFGS_TRACE("too many function evaluations: %u == %u\n",
                         state.num_f_evals, params.max_f_evals);
             // NOTE: We return αₓ rather than αₜ!
-            result = {status_t::too_many_function_evaluations, state.x.alpha,
-                      state.x.func, state.x.grad, state.num_f_evals};
+            result = {status_t::too_many_function_evaluations,
+                      state.x.alpha,
+                      state.x.func,
+                      state.x.grad,
+                      state.num_f_evals,
+                      false};
             return &result;
         }
         return nullptr;
@@ -465,9 +465,9 @@ struct too_many_f_evals_fn {
 };
 
 struct reached_max_step_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
     /// \brief Checks whether the algorithm should terminate at `αₘₐₓ`.
     ///
@@ -475,7 +475,7 @@ struct reached_max_step_fn {
     /// we reached `αₘₐₓ` and condition (2.3) holds (i.e. `ψ(αₜ) <= 0`
     /// and `ψ'(αₜ) < 0`). If this is indeed the case, #result is set to
     /// αₜ and a pointer to it is returned.
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
         auto const grad_test = params.f_tol * params.grad_0;
         auto const func_test = params.func_0 + state.t.alpha * grad_test;
@@ -483,8 +483,12 @@ struct reached_max_step_fn {
             && state.t.grad <= grad_test) {
             LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
                         grad_test);
-            result = {status_t::maximum_step_reached, state.t.alpha,
-                      state.t.func, state.t.grad, state.num_f_evals};
+            result = {status_t::maximum_step_reached,
+                      state.t.alpha,
+                      state.t.func,
+                      state.t.grad,
+                      state.num_f_evals,
+                      false};
             return &result;
         }
         return nullptr;
@@ -492,9 +496,9 @@ struct reached_max_step_fn {
 };
 
 struct reached_min_step_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
     /// \brief Checks whether the algorithm should terminate at `αₘᵢₙ`.
     ///
@@ -502,7 +506,7 @@ struct reached_min_step_fn {
     /// reached `αₘᵢₙ` and condition (2.4) holds (i.e. `ψ(αₜ) > 0` and
     /// `ψ'(αₜ) >= 0`). If this is indeed the case, #result is set to αₜ and a
     /// pointer to it is returned.
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
         auto const grad_test = params.f_tol * params.grad_0;
         auto const func_test = params.func_0 + state.t.alpha * grad_test;
@@ -510,8 +514,12 @@ struct reached_min_step_fn {
             && (state.t.func > func_test || state.t.grad >= grad_test)) {
             LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%f >= %f\n", state.t.grad,
                         grad_test);
-            result = {status_t::minimum_step_reached, state.t.alpha,
-                      state.t.func, state.t.grad, state.num_f_evals};
+            result = {status_t::minimum_step_reached,
+                      state.t.alpha,
+                      state.t.func,
+                      state.t.grad,
+                      state.num_f_evals,
+                      false};
             return &result;
         }
         return nullptr;
@@ -519,18 +527,22 @@ struct reached_min_step_fn {
 };
 
 struct strong_wolfe_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    /*constexpr*/ auto operator()() const noexcept -> ls_result_t*
     {
         // Both sufficient decrease (1.1) and curvatuve (1.2) conditions
         // hold (i.e. `ψ(αₜ) <= 0` and `|ф'(αₜ)| <= η·|ф'(0)|`). We use the
         // fact that `|ф'(0)| = -ф'(0)`, because `ф'(0) < 0` is a
         // precondition for the whole algorithm.
-        auto const func_test =
-            params.func_0 + state.t.alpha * params.f_tol * params.grad_0;
+        auto const grad_test = params.f_tol * params.grad_0;
+        auto const func_test = params.func_0 + state.t.alpha * grad_test;
+        LBFGS_TRACE("strong_wolfe_fn: f(x)=%f, func_test=%f, |grad|=%f, "
+                    "g_tol=%f, -grad_0=%f\n",
+                    state.t.func, func_test, std::abs(state.t.grad),
+                    params.g_tol, -params.grad_0);
         if ((state.t.func <= func_test)
             && (std::abs(state.t.grad) <= params.g_tol * (-params.grad_0))) {
             LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
@@ -539,8 +551,8 @@ struct strong_wolfe_fn {
                         "    %u function evaluations\n",
                         state.t.func, func_test, std::abs(state.t.grad),
                         params.g_tol * (-params.grad_0), state.num_f_evals);
-            result = {status_t::success, state.t.alpha, state.t.func,
-                      state.t.grad, state.num_f_evals};
+            result = {status_t::success, state.t.alpha,     state.t.func,
+                      state.t.grad,      state.num_f_evals, false};
             return &result;
         }
         return nullptr;
@@ -548,15 +560,19 @@ struct strong_wolfe_fn {
 };
 
 struct rounding_errors_fn {
-    internal_result_t&      result; ///< Reference to the return type
-    state_t const&          state;  ///< Current state
-    internal_param_t const& params; ///< Algorithm options
+    ls_result_t&      result; ///< Reference to the return type
+    ls_state_t const& state;  ///< Current state
+    ls_param_t const& params; ///< Algorithm options
 
-    constexpr auto operator()() const noexcept -> internal_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
         if (state.bracketed && state.t.alpha == state.interval.min()) {
-            result = {status_t::rounding_errors_prevent_progress, state.x.alpha,
-                      state.x.func, state.x.grad, state.num_f_evals};
+            result = {status_t::rounding_errors_prevent_progress,
+                      state.x.alpha,
+                      state.x.func,
+                      state.x.grad,
+                      state.num_f_evals,
+                      false};
             return &result;
         }
         return nullptr;
@@ -589,15 +605,15 @@ struct ensure_shrinking_fn {
         }
     };
 
-    constexpr ensure_shrinking_fn(state_t&     state,
+    constexpr ensure_shrinking_fn(ls_state_t&  state,
                                   double const max_width) noexcept
         : _state{state}, _width_history{2.0 * max_width, max_width}
     {
         LBFGS_ASSERT(max_width >= 0.0, "width cannot be negative");
     }
 
-    constexpr ensure_shrinking_fn(state_t&                state,
-                                  internal_param_t const& params) noexcept
+    constexpr ensure_shrinking_fn(ls_state_t&       state,
+                                  ls_param_t const& params) noexcept
         : ensure_shrinking_fn{state, params.step_max - params.step_min}
     {}
 
@@ -622,12 +638,12 @@ struct ensure_shrinking_fn {
     }
 
   private:
-    state_t&        _state;
+    ls_state_t&     _state;
     width_history_t _width_history;
 };
 
 struct with_modified_function_t {
-    constexpr with_modified_function_t(state_t&     s,
+    constexpr with_modified_function_t(ls_state_t&  s,
                                        double const grad_test) noexcept
         : _s{s}, _grad_test{grad_test}
     {
@@ -659,13 +675,13 @@ struct with_modified_function_t {
     with_modified_function_t& operator=(with_modified_function_t&&) = delete;
 
   private:
-    state_t&     _s;
+    ls_state_t&  _s;
     double const _grad_test;
 };
 
 template <class Function> struct evaluate_fn {
-    Function const& value_and_gradient;
-    state_t&        state;
+    Function&   value_and_gradient;
+    ls_state_t& state;
 
     constexpr auto operator()() const noexcept -> void
     {
@@ -685,19 +701,21 @@ template <class Function> struct evaluate_fn {
 };
 
 template <class Function>
-evaluate_fn(Function const&, state_t&)->evaluate_fn<Function>;
+evaluate_fn(Function&, ls_state_t&)->evaluate_fn<Function>;
 
 template <class Function>
 auto line_search(
-    Function value_and_gradient, internal_param_t const& params,
+    Function value_and_gradient, ls_param_t const& params,
     double const alpha_0) noexcept(noexcept(std::
-                                                declval<Function&&>()(
+                                                declval<Function&>()(
                                                     std::declval<double>())))
-    -> internal_result_t
+    -> ls_result_t
 {
     constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
+    LBFGS_ASSERT(check_parameters(params) == status_t::success,
+                 "invalid parametes");
     LBFGS_ASSERT(alpha_0 > 0, "invalid initial step");
-    state_t state = state_t{
+    auto state = ls_state_t{
         /*x=*/endpoint_t{0, params.func_0, params.grad_0},
         /*y=*/endpoint_t{0, params.func_0, params.grad_0},
         /*t=*/endpoint_t{alpha_0, NaN, NaN},
@@ -705,9 +723,9 @@ auto line_search(
         /*bracketed=*/false,
         /*num_f_evals=*/0u,
     };
-    auto              first_stage = true; // TODO(twesterhout): Explain stages
-    internal_result_t _result;
+    auto first_stage = true; // TODO(twesterhout): Explain stages
 
+    ls_result_t           _result;
     evaluate_fn           evaluate{value_and_gradient, state};
     ensure_shrinking_fn   ensure_shrinking{state, params};
     interval_too_small_fn interval_too_small{_result, state, params};
@@ -761,30 +779,24 @@ auto line_search(
 
 template <class Function>
 auto line_search(
-    Function&& value_and_gradient, param_type const& params, float const func_0,
-    float const grad_0,
-    float const alpha_0) noexcept(noexcept(std::
-                                               declval<Function&&>()(
-                                                   std::declval<float>())))
-    -> result_t
+    Function&& value_and_gradient, ls_param_t const& params,
+    double const alpha_0) noexcept(noexcept(std::
+                                                declval<Function&>()(
+                                                    std::declval<double>())))
+    -> ls_result_t
 {
     double cached = std::numeric_limits<double>::quiet_NaN();
     auto   r      = detail::line_search(
-        [&value_and_gradient, &cached](double const x) {
-            cached = x;
-            auto const [func, gradient] =
-                value_and_gradient(static_cast<float>(x));
-            return std::make_pair(static_cast<double>(func),
-                                  static_cast<double>(gradient));
+        [&value_and_gradient,
+         &cached](auto const x) -> std::pair<double, double> {
+            static_assert(std::is_same<decltype(x), double const>::value);
+            cached                      = x;
+            auto const [func, gradient] = value_and_gradient(x);
+            return {func, gradient};
         },
-        detail::internal_param_t{params, func_0, grad_0},
-        static_cast<double>(alpha_0));
-    return {r.status,
-            static_cast<float>(r.step),
-            static_cast<float>(r.func),
-            static_cast<float>(r.grad),
-            r.num_f_evals,
-            cached == r.step};
+        params, alpha_0);
+    r.cached = cached == r.step;
+    return r;
 }
 
 LBFGS_NAMESPACE_END

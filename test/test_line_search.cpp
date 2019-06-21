@@ -17,7 +17,7 @@ TEST_CASE("Quadratic minimiser", "[quadratic]")
             == approx(-1.0));
     REQUIRE(::LBFGS_NAMESPACE::detail::minimise_quadratic_interpolation(
                 100.1, 101.1, 100.0, 101.0)
-            == Approx(-1.0).epsilon(3e-3));
+            == Approx(-1.0).epsilon(3e-4));
 }
 
 TEST_CASE("Cubic minimiser", "[cubic]")
@@ -54,135 +54,145 @@ TEST_CASE("Cubic minimiser", "[cubic]")
 TEST_CASE("Function (5.1)", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
-        constexpr auto beta = 2.0f;
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
+        constexpr auto beta = 2.0;
         auto const     temp = x * x + beta;
         auto const     func = -x / temp;
         auto const     grad = (x * x - beta) / (temp * temp);
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.4f).epsilon(5e-2f));
-        REQUIRE(grad == Approx(-9.2e-3f).epsilon(1e-1f));
+        REQUIRE(alpha == Approx(1.4).epsilon(5e-2));
+        REQUIRE(grad == Approx(-9.2e-3).epsilon(1e-2));
         REQUIRE(num_f_evals == 6);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         REQUIRE(alpha == Approx(1.4).epsilon(1e-1));
-        REQUIRE(grad == Approx(4.7e-3f).epsilon(1e-1f));
+        REQUIRE(grad == Approx(4.7e-3).epsilon(1e-1));
         REQUIRE(num_f_evals == 3);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(10).epsilon(1e-1));
-        REQUIRE(grad == Approx(9.4e-3f).epsilon(1e-1f));
+        REQUIRE(alpha == Approx(10).epsilon(1e-2));
+        REQUIRE(grad == Approx(9.4e-3).epsilon(1e-2));
         REQUIRE(num_f_evals == 1);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(37).epsilon(1e-1));
-        REQUIRE(grad == Approx(7.3e-4f).epsilon(1e-1f));
+        REQUIRE(alpha == Approx(37).epsilon(1e-2));
+        REQUIRE(grad == Approx(7.3e-4).epsilon(1e-2));
         REQUIRE(num_f_evals == 4);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         REQUIRE(alpha == Approx(1.6).epsilon(4e-2));
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         REQUIRE(alpha == Approx(1.6).epsilon(2e-2));
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-4f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-4;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.414213562f).epsilon(1e-4));
+        REQUIRE(alpha == Approx(1.414213562).epsilon(1e-4));
         REQUIRE(num_f_evals == 8);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-4f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-4;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.414213562f).epsilon(1e-4));
+        REQUIRE(alpha == Approx(1.414213562).epsilon(1e-4));
         // NOTE: In the paper, they get 6 here. But it's okay since 5 < 6.
         REQUIRE(num_f_evals == 5);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-4f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-4;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.414213562f).epsilon(1e-3));
+        REQUIRE(alpha == Approx(1.414213562).epsilon(1e-3));
         REQUIRE(num_f_evals == 6);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-4f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-4;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.414213562f).epsilon(1e-4));
+        REQUIRE(alpha == Approx(1.414213562).epsilon(1e-4));
         REQUIRE(num_f_evals == 10);
     }
 }
@@ -190,68 +200,69 @@ TEST_CASE("Function (5.1)", "[line_search]")
 TEST_CASE("Function (5.2)", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
-        constexpr auto beta = 0.004f;
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
+        constexpr auto beta = 0.004;
         auto const     func =
-            std::pow(x + beta, 5.0f) - 2.0f * std::pow(x + beta, 4.0f);
+            std::pow(x + beta, 5.0) - 2.0 * std::pow(x + beta, 4.0);
         auto const grad =
-            5.0f * std::pow(x + beta, 4.0f) - 8.0f * std::pow(x + beta, 3.0f);
+            5.0 * std::pow(x + beta, 4.0) - 8.0 * std::pow(x + beta, 3.0);
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.596f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(7.1e-9f).margin(1e-8f));
-        // NOTE: In the paper, they claim that they obtain the result within 12
-        // function evaluations. Implementation from CppNumericalSolvers does as
-        // many as 16 function evaluations.
-        REQUIRE(num_f_evals == 15);
+        REQUIRE(alpha == Approx(1.596).epsilon(1e-2));
+        REQUIRE(grad == Approx(7.1e-9).margin(1e-8));
+        REQUIRE(num_f_evals == 12);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.596f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(0).margin(1e-9f));
+        REQUIRE(alpha == Approx(1.596).epsilon(1e-2));
+        REQUIRE(grad == Approx(10e-10).margin(1e-9));
         REQUIRE(num_f_evals == 8);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.596f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(0).margin(1e-9f));
+        REQUIRE(alpha == Approx(1.596).epsilon(1e-2));
+        REQUIRE(grad == Approx(-5e-9).margin(1e-9));
         REQUIRE(num_f_evals == 8);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.596f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(0).margin(1e-9f));
+        REQUIRE(alpha == Approx(1.596).epsilon(1e-2));
+        REQUIRE(grad == Approx(-2.3e-8).margin(1e-9));
         REQUIRE(num_f_evals == 11);
     }
 }
@@ -259,77 +270,80 @@ TEST_CASE("Function (5.2)", "[line_search]")
 TEST_CASE("Function (5.3)", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
-        constexpr auto l    = 39.0f;
-        constexpr auto beta = 0.01f;
-        constexpr auto pi   = static_cast<float>(M_PI);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
+        constexpr auto l    = 39.0;
+        constexpr auto beta = 0.01;
+        constexpr auto pi   = M_PI;
         auto const     f_0  = [beta](auto const _x) {
-            if (_x <= 1.0f - beta) return 1.0f - _x;
-            if (_x >= 1.0f + beta) return _x - 1.0f;
-            return (_x - 1.0f) * (_x - 1.0f) / (2.0f * beta) + beta / 2;
+            if (_x <= 1.0 - beta) return 1.0 - _x;
+            if (_x >= 1.0 + beta) return _x - 1.0;
+            return (_x - 1.0) * (_x - 1.0) / (2.0 * beta) + beta / 2;
         };
         auto const g_0 = [beta](auto const _x) {
-            if (_x <= 1.0f - beta) return -1.0f;
-            if (_x >= 1.0f + beta) return 1.0f;
-            return (_x - 1.0f) / beta;
+            if (_x <= 1.0 - beta) return -1.0;
+            if (_x >= 1.0 + beta) return 1.0;
+            return (_x - 1.0) / beta;
         };
         auto const func =
-            f_0(x)
-            + 2.0f * (1.0f - beta) / (l * pi) * std::sin(l * pi / 2.0f * x);
-        auto const grad = g_0(x) + (1.0f - beta) * std::cos(l * pi / 2.0f * x);
+            f_0(x) + 2.0 * (1.0 - beta) / (l * pi) * std::sin(l * pi / 2.0 * x);
+        auto const grad = g_0(x) + (1.0 - beta) * std::cos(l * pi / 2.0 * x);
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.0f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-5.1e-5f).margin(2e-5f));
+        REQUIRE(alpha == Approx(1.0).epsilon(1e-2));
+        REQUIRE(grad == Approx(-5.1e-5).margin(2e-5));
         REQUIRE(num_f_evals == 12);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.0f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-1.9e-4f).margin(2e-5f));
+        REQUIRE(alpha == Approx(1.0).epsilon(1e-2));
+        REQUIRE(grad == Approx(-1.9e-4).margin(2e-5));
         REQUIRE(num_f_evals == 12);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.0f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-2.0e-6f).margin(1e-5f));
+        REQUIRE(alpha == Approx(1.0).epsilon(1e-2));
+        REQUIRE(grad == Approx(-2.0e-6).margin(1e-5));
         REQUIRE(num_f_evals == 10);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-1f;
-        params.g_tol = 1e-1f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-1;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(1.0f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-1.6e-5f).margin(5e-5f));
+        REQUIRE(alpha == Approx(1.0).epsilon(1e-2));
+        REQUIRE(grad == Approx(-1.6e-5).margin(5e-5));
         REQUIRE(num_f_evals == 13);
     }
 }
@@ -337,31 +351,32 @@ TEST_CASE("Function (5.3)", "[line_search]")
 TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
         auto const gamma = [](auto const beta) {
-            return std::sqrt(1.0f + beta * beta) - beta;
+            return std::sqrt(1.0 + beta * beta) - beta;
         };
-        constexpr auto beta_1  = 0.001f;
-        constexpr auto beta_2  = 0.001f;
-        constexpr auto gamma_1 = 0.9990005f;
-        constexpr auto gamma_2 = 0.9990005f;
-        auto const     a = std::sqrt((1.0f - x) * (1.0f - x) + beta_2 * beta_2);
+        constexpr auto beta_1  = 0.001;
+        constexpr auto beta_2  = 0.001;
+        constexpr auto gamma_1 = 0.9990005;
+        constexpr auto gamma_2 = 0.9990005;
+        auto const     a = std::sqrt((1.0 - x) * (1.0 - x) + beta_2 * beta_2);
         auto const     b = std::sqrt(x * x + beta_1 * beta_1);
         auto const     func = gamma_1 * a + gamma_2 * b;
-        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0f) / a;
+        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0) / a;
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
-    REQUIRE(grad_0 == Approx(-0.9990000005f).epsilon(1e-5f));
-    REQUIRE(func_0 == Approx(1.0f).epsilon(1e-5f));
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
+    REQUIRE(grad_0 == Approx(-0.9990000005).epsilon(1e-5));
+    REQUIRE(func_0 == Approx(1.0).epsilon(1e-5));
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         // REQUIRE(alpha == Approx(0.08f).epsilon(1e-2f));
         // REQUIRE(grad == Approx(-6.9e-5f).margin(1e-5f));
@@ -369,12 +384,13 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         // REQUIRE(alpha == Approx(0.08f).epsilon(1e-2f));
         // REQUIRE(grad == Approx(-6.9e-5f).margin(1e-5f));
@@ -382,12 +398,13 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         // REQUIRE(alpha == Approx(0.08f).epsilon(1e-2f));
         // REQUIRE(grad == Approx(-6.9e-5f).margin(1e-5f));
@@ -395,12 +412,13 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         // REQUIRE(alpha == Approx(0.08f).epsilon(1e-2f));
         // REQUIRE(grad == Approx(-6.9e-5f).margin(1e-5f));
@@ -411,73 +429,77 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.001", "[line_search]")
 TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
         auto const gamma = [](auto const beta) {
-            return std::sqrt(1.0f + beta * beta) - beta;
+            return std::sqrt(1.0 + beta * beta) - beta;
         };
-        constexpr auto beta_1  = 0.01f;
-        constexpr auto beta_2  = 0.001f;
-        constexpr auto gamma_1 = 0.9900499990f;
-        constexpr auto gamma_2 = 0.9990005f;
-        auto const     a = std::sqrt((1.0f - x) * (1.0f - x) + beta_2 * beta_2);
+        constexpr auto beta_1  = 0.01;
+        constexpr auto beta_2  = 0.001;
+        constexpr auto gamma_1 = 0.9900499990;
+        constexpr auto gamma_2 = 0.9990005;
+        auto const     a = std::sqrt((1.0 - x) * (1.0 - x) + beta_2 * beta_2);
         auto const     b = std::sqrt(x * x + beta_1 * beta_1);
         auto const     func = gamma_1 * a + gamma_2 * b;
-        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0f) / a;
+        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0) / a;
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
-    REQUIRE(grad_0 == Approx(-0.9900495039f).epsilon(1e-5f));
-    REQUIRE(func_0 == Approx(1.000040499f).epsilon(1e-5f));
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
+    REQUIRE(grad_0 == Approx(-0.9900495039).epsilon(1e-5));
+    REQUIRE(func_0 == Approx(1.000040499).epsilon(1e-5));
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.075f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(1.9e-4f).margin(5e-5f));
+        REQUIRE(alpha == Approx(0.075).epsilon(1e-2));
+        REQUIRE(grad == Approx(1.9e-4).margin(5e-5));
         // REQUIRE(num_f_evals == 6);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.078f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(7.4e-4f).margin(2e-5f));
+        REQUIRE(alpha == Approx(0.078).epsilon(1e-2));
+        REQUIRE(grad == Approx(7.4e-4).margin(2e-5));
         REQUIRE(num_f_evals == 3);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.073f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-2.6e-4f).margin(2e-5f));
+        REQUIRE(alpha == Approx(0.073).epsilon(1e-2));
+        REQUIRE(grad == Approx(-2.6e-4).margin(2e-5));
         REQUIRE(num_f_evals == 7);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.076f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(4.5e-4f).margin(2e-5f));
+        REQUIRE(alpha == Approx(0.076).epsilon(1e-2));
+        REQUIRE(grad == Approx(4.5e-4).margin(2e-5));
         REQUIRE(num_f_evals == 8);
     }
 }
@@ -485,73 +507,77 @@ TEST_CASE("Function (5.4) β₁=0.01, β₂=0.001", "[line_search]")
 TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
-        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, float>);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(x)>, double>);
         auto const gamma = [](auto const beta) {
             return std::sqrt(1.0f + beta * beta) - beta;
         };
-        constexpr auto beta_1  = 0.001f;
-        constexpr auto beta_2  = 0.01f;
-        constexpr auto gamma_1 = 0.9990005f;
-        constexpr auto gamma_2 = 0.9900499990f;
-        auto const     a = std::sqrt((1.0f - x) * (1.0f - x) + beta_2 * beta_2);
+        constexpr auto beta_1  = 0.001;
+        constexpr auto beta_2  = 0.01;
+        constexpr auto gamma_1 = 0.9990005;
+        constexpr auto gamma_2 = 0.9900499990;
+        auto const     a = std::sqrt((1.0 - x) * (1.0 - x) + beta_2 * beta_2);
         auto const     b = std::sqrt(x * x + beta_1 * beta_1);
         auto const     func = gamma_1 * a + gamma_2 * b;
-        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0f) / a;
+        auto const     grad = gamma_2 * x / b + gamma_1 * (x - 1.0) / a;
         return std::make_pair(func, grad);
     };
-    auto const [func_0, grad_0] = value_and_gradient(0.0f);
-    REQUIRE(grad_0 == Approx(-0.9989505539f).epsilon(1e-5f));
-    REQUIRE(func_0 == Approx(1.000040499f).epsilon(1e-5f));
+    auto const [func_0, grad_0] = value_and_gradient(0.0);
+    REQUIRE(grad_0 == Approx(-0.9989505539).epsilon(1e-5));
+    REQUIRE(func_0 == Approx(1.000040499).epsilon(1e-5));
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.001f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.93f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(5.2e-4f).margin(2e-3f));
+        REQUIRE(alpha == Approx(0.93).epsilon(1e-2));
+        REQUIRE(grad == Approx(5.2e-4).margin(2e-3));
         // REQUIRE(num_f_evals == 13);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/0.1f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.1);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.93f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(8.4e-5f).margin(5e-4f));
+        REQUIRE(alpha == Approx(0.93).epsilon(1e-2));
+        REQUIRE(grad == Approx(8.4e-5).margin(5e-4));
         // REQUIRE(num_f_evals == 11);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/10.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/10.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.92f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-2.4e-4f).margin(2e-4f));
+        REQUIRE(alpha == Approx(0.92).epsilon(1e-2));
+        REQUIRE(grad == Approx(-2.4e-4).margin(2e-4));
         // REQUIRE(num_f_evals == 8);
     }
 
     {
-        ::LBFGS_NAMESPACE::param_type params;
-        params.f_tol = 1e-3f;
-        params.g_tol = 1e-3f;
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-3;
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
-            ::LBFGS_NAMESPACE::line_search(value_and_gradient, params, func_0,
-                                           grad_0, /*alpha_0=*/1000.0f);
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
-        REQUIRE(alpha == Approx(0.92f).epsilon(1e-2f));
-        REQUIRE(grad == Approx(-3.2e-4f).margin(2e-4f));
+        REQUIRE(alpha == Approx(0.92).epsilon(1e-2));
+        REQUIRE(grad == Approx(-3.2e-4).margin(2e-4));
         // REQUIRE(num_f_evals == 11);
     }
 }

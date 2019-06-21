@@ -96,7 +96,7 @@ namespace {
     ///
     /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the new
     /// search interval `I⁺`.
-    inline auto case_1(state_t const& state) noexcept
+    inline auto case_1(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
         auto const cubic = detail::minimise_cubic_interpolation(
@@ -119,7 +119,7 @@ namespace {
     ///
     /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the new
     /// search interval `I⁺`.
-    inline auto case_2(state_t const& state) noexcept
+    inline auto case_2(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
         auto const cubic = detail::minimise_cubic_interpolation(
@@ -139,7 +139,7 @@ namespace {
         return {alpha, /*bracketed=*/true, /*bound=*/false};
     }
 
-    inline auto case_3(state_t const& state) noexcept
+    inline auto case_3(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
         auto const cubic = detail::minimise_cubic_interpolation(
@@ -175,7 +175,7 @@ namespace {
         return result;
     }
 
-    inline auto case_4(state_t const& state) noexcept
+    inline auto case_4(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
         auto const alpha =
@@ -192,7 +192,7 @@ namespace {
         return {alpha, /*bracketed=*/state.bracketed, /*bound=*/false};
     }
 
-    inline auto handle_cases(state_t const& state) noexcept
+    inline auto handle_cases(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
         if (state.t.func > state.x.func) { return case_1(state); }
@@ -205,7 +205,7 @@ namespace {
     }
 } // namespace
 
-LBFGS_EXPORT auto update_trial_value_and_interval(state_t& state) noexcept
+LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
     -> void
 {
     // Check the input parameters for errors.
