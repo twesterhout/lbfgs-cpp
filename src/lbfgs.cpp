@@ -1,5 +1,5 @@
 
-#include "line_search.hpp"
+#include "lbfgs.hpp"
 #include <system_error>
 
 LBFGS_NAMESPACE_BEGIN
@@ -29,6 +29,7 @@ auto lbfgs_error_category::message(int const value) const -> std::string
 {
     switch (static_cast<status_t>(value)) {
     case status_t::success: return "no error";
+    case status_t::too_many_iterations: return "too many iterations";
     case status_t::invalid_argument: return "received an invalid argument";
     case status_t::rounding_errors_prevent_progress:
         return "rounding errors prevent further progress";
@@ -214,8 +215,8 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
             || (std::min(state.x.alpha, state.y.alpha) < state.t.alpha
                 && state.t.alpha < std::max(state.x.alpha, state.y.alpha)),
         "αₜ ∉ I");
-    LBFGS_ASSERT(state.x.grad * (state.t.alpha - state.x.alpha) < 0.0, // NOLINT
-                 "wrong search direction");                            // NOLINT
+    LBFGS_ASSERT(state.x.grad * (state.t.alpha - state.x.alpha) < 0.0,
+                 "wrong search direction");
     bool   bound;
     double alpha;
     std::tie(alpha, state.bracketed, bound) = handle_cases(state);
@@ -244,5 +245,271 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
                                 state.bracketed};
 }
 } // namespace detail
+
+LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(size_t const n, size_t const m)
+    : _workspace{}, _history{}, _n{}
+{
+    _workspace.reserve(1048576UL);
+    _history.reserve(32UL);
+    resize(n, m);
+}
+
+LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t n, size_t const m) -> void
+{
+    if (n != _n || m != _history.size()) {
+        // Since _workspace may need to be re-allocated, we don't want to
+        // keep dangling pointers
+        _history.clear();
+        _history.resize(
+            m, {0.0f, std::numeric_limits<float>::quiet_NaN(), {}, {}});
+        _n = n;
+        _workspace.resize(vector_size(n) * number_vectors(m));
+        for (auto i = size_t{0}; i < _history.size(); ++i) {
+            _history[i].s = get(2 * i);
+            _history[i].y = get(2 * i + 1);
+        }
+    }
+}
+
+LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
+{
+    constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
+    auto const     m   = _history.size();
+    return lbfgs_state_t{{gsl::span<iteration_data_t>{_history}},
+                         {NaN, get(2 * m + 1), get(2 * m + 2)},
+                         {NaN, get(2 * m + 3), get(2 * m + 4)},
+                         get(2 * m + 5)};
+}
+
+constexpr auto iteration_history_t::emplace_back_impl(
+    gsl::span<float const> x, gsl::span<float const> x_prev,
+    gsl::span<float const> g, gsl::span<float const> g_prev) noexcept -> double
+{
+    auto idx = back_index();
+    if (_size == capacity()) { _first = sum(_first, 1); }
+    else {
+        ++_size;
+    }
+
+    // TODO: Optimise this loop
+    auto&      s       = _data[idx].s;
+    auto&      y       = _data[idx].y;
+    auto const n       = s.size();
+    auto       s_dot_y = 0.0;
+    auto       y_dot_y = 0.0;
+    for (auto i = size_t{0}; i < n; ++i) {
+        s[i] = x[i] - x_prev[i];
+        y[i] = g[i] - g_prev[i];
+        s_dot_y += s[i] * y[i];
+        y_dot_y += y[i] * y[i];
+    }
+    _data[idx].s_dot_y = s_dot_y;
+    _data[idx].alpha   = std::numeric_limits<float>::quiet_NaN();
+    LBFGS_ASSERT(s_dot_y > 0, "something went wrong during line search");
+    return s_dot_y / y_dot_y;
+}
+
+LBFGS_EXPORT auto iteration_history_t::emplace_back(
+    gsl::span<float const> x, gsl::span<float const> x_prev,
+    gsl::span<float const> g, gsl::span<float const> g_prev) noexcept -> double
+{
+    return emplace_back_impl(x, x_prev, g, g_prev);
+}
+
+constexpr auto iteration_history_t::capacity() const noexcept -> size_type
+{
+    return _data.size();
+}
+
+constexpr auto iteration_history_t::size() const noexcept -> size_type
+{
+    return _size;
+}
+
+constexpr auto iteration_history_t::empty() const noexcept -> bool
+{
+    return _size == 0;
+}
+
+constexpr auto iteration_history_t::operator[](size_type const i) const noexcept
+    -> iteration_data_t const&
+{
+    LBFGS_ASSERT(i < size(), "index out of bounds");
+    return _data[i % capacity()];
+}
+
+constexpr auto iteration_history_t::operator[](size_type const i) noexcept
+    -> iteration_data_t&
+{
+    LBFGS_ASSERT(i < size(), "index out of bounds");
+    return _data[i % capacity()];
+}
+
+constexpr auto iteration_history_t::sum(size_type const a,
+                                        size_type const b) const noexcept
+    -> size_type
+{
+    auto r = a + b;
+    r -= (r >= capacity()) * capacity();
+    return r;
+}
+
+constexpr auto iteration_history_t::back_index() const noexcept -> size_type
+{
+    return sum(_first, _size);
+}
+
+template <bool IsConst> class iteration_history_t::history_iterator {
+  public:
+    using type            = history_iterator<IsConst>;
+    using value_type      = iteration_data_t;
+    using difference_type = std::ptrdiff_t;
+    using pointer = std::conditional_t<IsConst, value_type const, value_type>*;
+    using reference =
+        std::conditional_t<IsConst, value_type const, value_type>&;
+    using iterator_category = std::bidirectional_iterator_tag;
+
+    constexpr history_iterator() noexcept                        = default;
+    constexpr history_iterator(history_iterator const&) noexcept = default;
+    constexpr history_iterator(history_iterator&&) noexcept      = default;
+    constexpr history_iterator&
+    operator=(history_iterator const&) noexcept = default;
+    constexpr history_iterator&
+    operator=(history_iterator&&) noexcept = default;
+
+    constexpr auto operator*() const noexcept -> reference
+    {
+        LBFGS_ASSERT(_obj != nullptr && _i < _obj->size(),
+                     "iterator not dereferenceable");
+        return (*_obj)[_i];
+    }
+
+    constexpr auto operator-> () const noexcept -> pointer
+    {
+        return std::addressof(*(*this));
+    }
+
+    constexpr auto operator++() noexcept -> type&
+    {
+        LBFGS_ASSERT(_obj != nullptr && _i < _obj->size(),
+                     "iterator not incrementable");
+        ++_i;
+        return *this;
+    }
+
+    constexpr auto operator++(int) noexcept -> type
+    {
+        auto temp{*this};
+        ++(*this);
+        return temp;
+    }
+
+    constexpr auto operator--() noexcept -> type&
+    {
+        LBFGS_ASSERT(_obj != nullptr && _i > 0, "iterator not decrementable");
+        --_i;
+        return *this;
+    }
+
+    constexpr auto operator--(int) noexcept -> type
+    {
+        auto temp{*this};
+        --(*this);
+        return temp;
+    }
+
+    template <bool C>
+    constexpr auto operator==(history_iterator<C> const& other) const noexcept
+        -> bool
+    {
+        LBFGS_ASSERT(_obj == other._obj, "iterators pointing to different "
+                                         "containers are not comparable");
+        return _i == other._i;
+    }
+
+    template <bool C>
+    constexpr auto operator!=(history_iterator<C> const& other) const noexcept
+        -> bool
+    {
+        return !(*this == other);
+    }
+
+    constexpr operator history_iterator<true>() const noexcept
+    {
+        return {_obj, _i};
+    }
+
+  private:
+    friend iteration_history_t;
+    friend class history_iterator<!IsConst>;
+    using size_type = iteration_history_t::size_type;
+    using container_pointer =
+        std::conditional_t<IsConst, iteration_history_t const,
+                           iteration_history_t>*;
+
+    constexpr history_iterator(container_pointer obj, size_type i) noexcept
+        : _obj{obj}, _i{i}
+    {}
+
+    container_pointer _obj;
+    size_type         _i;
+};
+
+constexpr auto iteration_history_t::begin() const noexcept -> const_iterator
+{
+    return {this, _first};
+}
+
+constexpr auto iteration_history_t::begin() noexcept -> iterator
+{
+    return {this, _first};
+}
+
+constexpr auto iteration_history_t::end() const noexcept -> const_iterator
+{
+    return {this, size()};
+}
+
+constexpr auto iteration_history_t::end() noexcept -> iterator
+{
+    return {this, size()};
+}
+
+template <class Iterator>
+auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
+                           gsl::span<float> q) -> void
+{
+    // for i = k − 1, k − 2, . . . , k − m
+    std::for_each(std::make_reverse_iterator(end),
+                  std::make_reverse_iterator(begin), [q](auto& x) {
+                      // alpha_i <- rho_i*s_i^T*q
+                      x.alpha = detail::dot(x.s, q) / x.s_dot_y;
+                      // q <- q - alpha_i*y_i
+                      detail::axpy(-x.alpha, x.y, q);
+                      printf("α=%f\n", x.alpha);
+                      print_span("q=", q);
+                  });
+    // r <- H_k^0*q
+    detail::scal(static_cast<float>(gamma), q);
+    printf("γ=%f\n", gamma);
+    print_span("q=", q);
+    //for i = k − m, k − m + 1, . . . , k − 1
+    std::for_each(begin, end, [q](auto& x) {
+        // beta <- rho_i * y_i^T * r
+        auto const beta = detail::dot(x.y, q) / x.s_dot_y;
+        // r <- r + s_i * ( alpha_i - beta)
+        detail::axpy(x.alpha - beta, x.s, q);
+        printf("β=%f\n", beta);
+        print_span("q=", q);
+    });
+    // stop with result "H_k*f_f'=q"
+}
+
+LBFGS_EXPORT auto apply_inverse_hessian(iteration_history_t&   history,
+                                        double const           gamma,
+                                        gsl::span<float> const q) -> void
+{
+    apply_inverse_hessian(history.begin(), history.end(), gamma, q);
+}
 
 LBFGS_NAMESPACE_END

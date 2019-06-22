@@ -22,75 +22,7 @@
 
 #include "line_search.hpp"
 
-#if 0
-extern "C" {
-double cblas_dsdot(int32_t n, const float* sx, int32_t incx, const float* sy,
-                   int32_t incy);
-void   cblas_saxpy(int32_t n, float a, const float* x, const int32_t incx,
-                   float* y, int32_t incy);
-void   cblas_sscal(int32_t n, float a, float* x, int32_t incx);
-} // extern "C"
-#endif
-
 LBFGS_NAMESPACE_BEGIN
-
-namespace detail {
-
-// A hacky way of determining the integral type BLAS uses for sizes and
-// increments: we pattern match on the signature of `cblas_sdot`.
-template <class T> struct get_blas_int_type;
-
-template <class T>
-struct get_blas_int_type<float (*)(T, float const*, T, float const*, T)> {
-    using type = T;
-};
-
-using blas_int = typename get_blas_int_type<decltype(&cblas_sdot)>::type;
-
-inline auto dot(gsl::span<float const> a, gsl::span<float const> b) noexcept
-    -> double
-{
-    LBFGS_ASSERT(a.size() == b.size(), "incompatible dimensions");
-    LBFGS_ASSERT(
-        a.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
-        "integer overflow");
-    return cblas_dsdot(static_cast<blas_int>(a.size()), a.data(), 1, b.data(),
-                       1);
-}
-
-inline auto nrm2(gsl::span<float const> x) noexcept -> double
-{
-    LBFGS_ASSERT(
-        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
-        "integer overflow");
-#if defined(LBFGS_CLANG)
-#    pragma clang diagnostic push
-#    pragma clang diagnostic ignored "-Wdouble-promotion"
-#endif
-    return cblas_snrm2(static_cast<blas_int>(x.size()), x.data(), 1);
-#if defined(LBFGS_CLANG)
-#    pragma clang diagnostic pop
-#endif
-}
-
-inline auto axpy(float const a, gsl::span<float const> x,
-                 gsl::span<float> y) noexcept -> void
-{
-    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
-    LBFGS_ASSERT(
-        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
-        "integer overflow");
-    cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
-}
-
-inline auto scal(float const a, gsl::span<float> x) noexcept -> void
-{
-    LBFGS_ASSERT(
-        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
-        "integer overflow");
-    cblas_sscal(static_cast<blas_int>(x.size()), a, x.data(), 1);
-}
-} // namespace detail
 
 struct lbfgs_param_t {
     /// Number of vectors used for representing the inverse Hessian matrix.
@@ -158,6 +90,73 @@ struct lbfgs_param_t {
     }
 };
 
+namespace detail {
+
+// A hacky way of determining the integral type BLAS uses for sizes and
+// increments: we pattern match on the signature of `cblas_sdot`.
+template <class T> struct get_blas_int_type;
+
+template <class T>
+struct get_blas_int_type<float (*)(T, float const*, T, float const*, T)> {
+    using type = T;
+};
+
+using blas_int = typename get_blas_int_type<decltype(&cblas_sdot)>::type;
+
+inline auto dot(gsl::span<float const> a, gsl::span<float const> b) noexcept
+    -> double
+{
+    LBFGS_ASSERT(a.size() == b.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        a.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    return cblas_dsdot(static_cast<blas_int>(a.size()), a.data(), 1, b.data(),
+                       1);
+}
+
+inline auto nrm2(gsl::span<float const> x) noexcept -> double
+{
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#endif
+    return cblas_snrm2(static_cast<blas_int>(x.size()), x.data(), 1);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+}
+
+inline auto axpy(float const a, gsl::span<float const> x,
+                 gsl::span<float> y) noexcept -> void
+{
+    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
+}
+
+inline auto scal(float const a, gsl::span<float> x) noexcept -> void
+{
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    cblas_sscal(static_cast<blas_int>(x.size()), a, x.data(), 1);
+}
+
+inline auto negative_copy(gsl::span<float const> const src,
+                          gsl::span<float> const       dst) noexcept -> void
+{
+    LBFGS_ASSERT(src.size() == dst.size(), "incompatible dimensions");
+    for (auto i = size_t{0}; i < src.size(); ++i) {
+        dst[i] = -src[i];
+    }
+}
+} // namespace detail
+
 struct iteration_data_t {
     float            s_dot_y;
     float            alpha;
@@ -191,180 +190,30 @@ class iteration_history_t {
     iteration_history_t& operator=(iteration_history_t const&) = delete;
     iteration_history_t& operator=(iteration_history_t&&) = delete;
 
-    constexpr auto capacity() const noexcept { return _data.size(); }
-    constexpr auto size() const noexcept { return _size; }
-    constexpr auto empty() const noexcept { return _size == 0; }
-    constexpr auto full() const noexcept { return size() == capacity(); }
+    auto emplace_back(gsl::span<float const> x, gsl::span<float const> x_prev,
+                      gsl::span<float const> g,
+                      gsl::span<float const> g_prev) noexcept -> double;
 
-    constexpr auto emplace_back(gsl::span<float const> x,
-                                gsl::span<float const> x_prev,
-                                gsl::span<float const> g,
-                                gsl::span<float const> g_prev) noexcept
-        -> double
-    {
-        auto idx = back_index();
-        if (_size == capacity()) { _first = sum(_first, 1); }
-        else {
-            ++_size;
-        }
-
-        // TODO: Optimise this loop
-        auto&      s       = _data[idx].s;
-        auto&      y       = _data[idx].y;
-        auto const n       = s.size();
-        auto       s_dot_y = 0.0;
-        auto       y_dot_y = 0.0;
-        for (auto i = size_t{0}; i < n; ++i) {
-            s[i] = x[i] - x_prev[i];
-            y[i] = g[i] - g_prev[i];
-            s_dot_y += s[i] * y[i];
-            y_dot_y += y[i] * y[i];
-        }
-        _data[idx].s_dot_y = s_dot_y;
-        _data[idx].alpha   = std::numeric_limits<float>::quiet_NaN();
-        LBFGS_ASSERT(s_dot_y > 0, "something went wrong during line search");
-        return s_dot_y / y_dot_y;
-    }
+    constexpr auto begin() const noexcept -> const_iterator;
+    constexpr auto begin() noexcept -> iterator;
+    constexpr auto end() const noexcept -> const_iterator;
+    constexpr auto end() noexcept -> iterator;
 
   private:
+    constexpr auto emplace_back_impl(gsl::span<float const> x,
+                                     gsl::span<float const> x_prev,
+                                     gsl::span<float const> g,
+                                     gsl::span<float const> g_prev) noexcept
+        -> double;
+    constexpr auto capacity() const noexcept -> size_type;
+    constexpr auto size() const noexcept -> size_type;
+    constexpr auto empty() const noexcept -> bool;
     constexpr auto operator[](size_type const i) const noexcept
-        -> iteration_data_t const&
-    {
-        LBFGS_ASSERT(i < size(), "index out of bounds");
-        return _data[i % capacity()];
-    }
-
-    constexpr auto operator[](size_type const i) noexcept -> iteration_data_t&
-    {
-        LBFGS_ASSERT(i < size(), "index out of bounds");
-        return _data[i % capacity()];
-    }
-
+        -> iteration_data_t const&;
+    constexpr auto operator[](size_type const i) noexcept -> iteration_data_t&;
     constexpr auto sum(size_type const a, size_type const b) const noexcept
-        -> size_type
-    {
-        auto r = a + b;
-        r -= (r >= capacity()) * capacity();
-        return r;
-    }
-
-    constexpr auto back_index() const noexcept -> size_type
-    {
-        return sum(_first, _size);
-    }
-
-    template <bool IsConst> class history_iterator {
-      public:
-        using type            = history_iterator<IsConst>;
-        using value_type      = iteration_data_t;
-        using difference_type = std::ptrdiff_t;
-        using pointer =
-            std::conditional_t<IsConst, value_type const, value_type>*;
-        using reference =
-            std::conditional_t<IsConst, value_type const, value_type>&;
-        using iterator_category = std::bidirectional_iterator_tag;
-
-        constexpr history_iterator() noexcept                        = default;
-        constexpr history_iterator(history_iterator const&) noexcept = default;
-        constexpr history_iterator(history_iterator&&) noexcept      = default;
-        constexpr history_iterator&
-        operator=(history_iterator const&) noexcept = default;
-        constexpr history_iterator&
-        operator=(history_iterator&&) noexcept = default;
-
-        constexpr auto operator*() const noexcept -> reference
-        {
-            LBFGS_ASSERT(_obj != nullptr && _i < _obj->size(),
-                         "iterator not dereferenceable");
-            return (*_obj)[_i];
-        }
-
-        constexpr auto operator-> () const noexcept -> pointer
-        {
-            return std::addressof(*(*this));
-        }
-
-        constexpr auto operator++() noexcept -> type&
-        {
-            LBFGS_ASSERT(_obj != nullptr && _i < _obj->size(),
-                         "iterator not incrementable");
-            ++_i;
-            return *this;
-        }
-
-        constexpr auto operator++(int) noexcept -> type
-        {
-            auto temp{*this};
-            ++(*this);
-            return temp;
-        }
-
-        constexpr auto operator--() noexcept -> type&
-        {
-            LBFGS_ASSERT(_obj != nullptr && _i > 0,
-                         "iterator not decrementable");
-            --_i;
-            return *this;
-        }
-
-        constexpr auto operator--(int) noexcept -> type
-        {
-            auto temp{*this};
-            --(*this);
-            return temp;
-        }
-
-        template <bool C>
-        constexpr auto operator==(history_iterator<C> const& other) const
-            noexcept -> bool
-        {
-            LBFGS_ASSERT(_obj == other._obj, "iterators pointing to different "
-                                             "containers are not comparable");
-            return _i == other._i;
-        }
-
-        template <bool C>
-        constexpr auto operator!=(history_iterator<C> const& other) const
-            noexcept -> bool
-        {
-            return !(*this == other);
-        }
-
-        constexpr operator history_iterator<true>() const noexcept
-        {
-            return {_obj, _i};
-        }
-
-      private:
-        friend iteration_history_t;
-        friend class history_iterator<!IsConst>;
-        using size_type = iteration_history_t::size_type;
-        using container_pointer =
-            std::conditional_t<IsConst, iteration_history_t const,
-                               iteration_history_t>*;
-
-        constexpr history_iterator(container_pointer obj, size_type i) noexcept
-            : _obj{obj}, _i{i}
-        {}
-
-        container_pointer _obj;
-        size_type         _i;
-    };
-
-  public:
-    constexpr auto begin() const noexcept -> const_iterator
-    {
-        return {this, _first};
-    }
-
-    constexpr auto begin() noexcept -> iterator { return {this, _first}; }
-
-    constexpr auto end() const noexcept -> const_iterator
-    {
-        return {this, size()};
-    }
-
-    constexpr auto end() noexcept -> iterator { return {this, size()}; }
+        -> size_type;
+    constexpr auto back_index() const noexcept -> size_type;
 
   private:
     friend history_iterator<true>;
@@ -399,6 +248,7 @@ struct lbfgs_point_t {
     lbfgs_point_t& operator=(lbfgs_point_t const& other) noexcept
     {
         value = other.value;
+        // TODO: Check that ranges don't overlap.
         std::copy(std::begin(other.x), std::end(other.x), std::begin(x));
         std::copy(std::begin(other.grad), std::end(other.grad),
                   std::begin(grad));
@@ -414,11 +264,11 @@ struct lbfgs_state_t {
 };
 
 struct lbfgs_buffers_t {
+  private:
     std::vector<float>            _workspace;
     std::vector<iteration_data_t> _history;
     size_t                        _n;
 
-  private:
     static constexpr auto number_vectors(size_t const m) noexcept -> size_t
     {
         return 2 * m /* s and y vectors of the last m iterations */
@@ -442,43 +292,12 @@ struct lbfgs_buffers_t {
     }
 
   public:
-    lbfgs_buffers_t(size_t const n, size_t const m)
-        : _workspace{}, _history{}, _n{}
-    {
-        _workspace.reserve(1048576UL);
-        _history.reserve(32UL);
-        resize(n, m);
-    }
-
-    auto resize(size_t n, size_t const m) -> void
-    {
-        if (n != _n || m != _history.size()) {
-            // Since _workspace may need to be re-allocated, we don't want to
-            // keep dangling pointers
-            _history.clear();
-            _history.resize(
-                m, {0.0f, std::numeric_limits<float>::quiet_NaN(), {}, {}});
-            _n = n;
-            _workspace.resize(vector_size(n) * number_vectors(m));
-            for (auto i = size_t{0}; i < _history.size(); ++i) {
-                _history[i].s = get(2 * i);
-                _history[i].y = get(2 * i + 1);
-            }
-        }
-    }
-
-    auto make_state() noexcept -> lbfgs_state_t
-    {
-        constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
-        auto const     m   = _history.size();
-        return lbfgs_state_t{{gsl::span<iteration_data_t>{_history}},
-                             {NaN, get(2 * m + 1), get(2 * m + 2)},
-                             {NaN, get(2 * m + 3), get(2 * m + 4)},
-                             get(2 * m + 5)};
-    }
+    lbfgs_buffers_t(size_t const n, size_t const m);
+    auto resize(size_t n, size_t const m) -> void;
+    auto make_state() noexcept -> lbfgs_state_t;
 };
 
-auto print_span(char const* prefix, gsl::span<float const> xs) -> void
+inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
 {
     std::printf("%s [", prefix);
     if (!xs.empty()) {
@@ -490,35 +309,8 @@ auto print_span(char const* prefix, gsl::span<float const> xs) -> void
     std::printf("]\n");
 }
 
-template <class Iterator>
-auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
-                           gsl::span<float> q)
-{
-    // for i = k − 1, k − 2, . . . , k − m
-    std::for_each(std::make_reverse_iterator(end),
-                  std::make_reverse_iterator(begin), [q](auto& x) {
-                      // alpha_i <- rho_i*s_i^T*q
-                      x.alpha = detail::dot(x.s, q) / x.s_dot_y;
-                      // q <- q - alpha_i*y_i
-                      detail::axpy(-x.alpha, x.y, q);
-                      printf("α=%f\n", x.alpha);
-                      print_span("q=", q);
-                  });
-    // r <- H_k^0*q
-    detail::scal(static_cast<float>(gamma), q);
-    printf("γ=%f\n", gamma);
-    print_span("q=", q);
-    //for i = k − m, k − m + 1, . . . , k − 1
-    std::for_each(begin, end, [q](auto& x) {
-        // beta <- rho_i * y_i^T * r
-        auto const beta = detail::dot(x.y, q) / x.s_dot_y;
-        // r <- r + s_i * ( alpha_i - beta)
-        detail::axpy(x.alpha - beta, x.s, q);
-        printf("β=%f\n", beta);
-        print_span("q=", q);
-    });
-    // stop with result "H_k*f_f'=q"
-}
+auto apply_inverse_hessian(iteration_history_t& history, double const gamma,
+                           gsl::span<float> const q) -> void;
 
 struct line_search_runner_fn {
 
@@ -626,9 +418,7 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
     if (gradient_is_small(grad_0_norm)) { return status_t::success; }
     auto step = 1.0 / grad_0_norm;
 
-    std::transform(std::begin(state.current.grad), std::end(state.current.grad),
-                   std::begin(state.direction),
-                   [](auto const x) { return -x; });
+    detail::negative_copy(state.current.grad, state.direction);
 
     line_search_runner_fn do_line_search{state, params};
 
@@ -650,18 +440,10 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
         auto const gamma =
             state.history.emplace_back(state.current.x, state.previous.x,
                                        state.current.grad, state.previous.grad);
+        detail::negative_copy(state.current.grad, state.direction);
+        apply_inverse_hessian(state.history, gamma, state.direction);
 
-        std::transform(
-            std::begin(state.current.grad), std::end(state.current.grad),
-            std::begin(state.direction), [](auto const x) { return -x; });
-
-        print_span("before: ", state.direction);
-        LBFGS_TRACE("size=%zu, iteration=%i\n", state.history.size(),
-                    iteration);
-        apply_inverse_hessian(state.history.begin(), state.history.end(), gamma,
-                              state.direction);
-        print_span("after:  ", state.direction);
-
+        // From now on, always start with αₜ = 1
         step = 1.0;
     }
 }

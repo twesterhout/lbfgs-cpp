@@ -114,7 +114,7 @@ if (LBFGS_DEBUG)
 endif()
 
 add_library(lbfgs SHARED src/lbfgs.cpp)
-target_link_libraries(lbfgs Common)
+target_link_libraries(lbfgs Common ${BLAS_LIBRARIES})
 
 
 CHECK_CXX_COMPILER_FLAG("-fvisibility=hidden" LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
