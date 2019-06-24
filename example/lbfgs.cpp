@@ -23,7 +23,7 @@ int main()
         return f_x;
     };
 
-    tcm::lbfgs::lbfgs_buffers_t buffers(10, 5);
+    tcm::lbfgs::lbfgs_buffers_t buffers(10, 5, 100);
     auto                        state = buffers.make_state();
 
     std::copy(std::begin(x), std::end(x), std::begin(state.current.x));

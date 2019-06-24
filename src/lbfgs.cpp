@@ -246,15 +246,97 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
 }
 } // namespace detail
 
-LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(size_t const n, size_t const m)
-    : _workspace{}, _history{}, _n{}
+namespace detail {
+LBFGS_EXPORT auto dot(gsl::span<float const> a,
+                      gsl::span<float const> b) noexcept -> double
+{
+    LBFGS_ASSERT(a.size() == b.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        a.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    return cblas_dsdot(static_cast<blas_int>(a.size()), a.data(), 1, b.data(),
+                       1);
+}
+
+LBFGS_EXPORT auto nrm2(gsl::span<float const> x) noexcept -> double
+{
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#endif
+    return cblas_snrm2(static_cast<blas_int>(x.size()), x.data(), 1);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+}
+
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float> y) noexcept -> void
+{
+    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
+}
+
+LBFGS_EXPORT auto scal(float const a, gsl::span<float> x) noexcept -> void
+{
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    cblas_sscal(static_cast<blas_int>(x.size()), a, x.data(), 1);
+}
+
+LBFGS_EXPORT auto negative_copy(gsl::span<float const> const src,
+                                gsl::span<float> const dst) noexcept -> void
+{
+    LBFGS_ASSERT(src.size() == dst.size(), "incompatible dimensions");
+    for (auto i = size_t{0}; i < src.size(); ++i) {
+        dst[i] = -src[i];
+    }
+}
+
+} // namespace detail
+
+LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(size_t const n, size_t const m,
+                                              size_t const past)
+    : _workspace{}, _history{}, _func_history{}, _n{}
 {
     _workspace.reserve(1048576UL);
     _history.reserve(32UL);
-    resize(n, m);
+    _func_history.reserve(128UL);
+    resize(n, m, past);
 }
 
-LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t n, size_t const m) -> void
+constexpr auto lbfgs_buffers_t::number_vectors(size_t const m) noexcept
+    -> size_t
+{
+    return 2 * m /* s and y vectors of the last m iterations */
+           + 1   /* x */
+           + 1   /* x_prev */
+           + 1   /* g */
+           + 1   /* g_prev */
+           + 1;  /* d */
+}
+
+constexpr auto lbfgs_buffers_t::vector_size(size_t const n) noexcept -> size_t
+{
+    return align_up<64UL / sizeof(float)>(n);
+}
+
+auto lbfgs_buffers_t::get(size_t const i) noexcept -> gsl::span<float>
+{
+    LBFGS_ASSERT((i + 1) * _n <= _workspace.size(), "index out of bounds");
+    auto const size = vector_size(_n);
+    return {_workspace.data() + i * size, _n};
+}
+
+LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t const n, size_t const m,
+                                          size_t const past) -> void
 {
     if (n != _n || m != _history.size()) {
         // Since _workspace may need to be re-allocated, we don't want to
@@ -269,6 +351,7 @@ LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t n, size_t const m) -> void
             _history[i].y = get(2 * i + 1);
         }
     }
+    if (past != _func_history.size()) { _func_history.resize(past); }
 }
 
 LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
@@ -278,7 +361,8 @@ LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
     return lbfgs_state_t{{gsl::span<iteration_data_t>{_history}},
                          {NaN, get(2 * m + 1), get(2 * m + 2)},
                          {NaN, get(2 * m + 3), get(2 * m + 4)},
-                         get(2 * m + 5)};
+                         get(2 * m + 5),
+                         {gsl::span<double>{_func_history}}};
 }
 
 constexpr auto iteration_history_t::emplace_back_impl(
