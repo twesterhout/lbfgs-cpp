@@ -238,6 +238,19 @@ constexpr auto align_up(size_t const value) noexcept -> size_t
     return (value + (Alignment - 1)) & ~(Alignment - 1);
 }
 
+/// Returns whether two spans are overlapping.
+///
+/// \note I'm still not 100% certain this code is guaranteed to work by the
+/// standard. Here's why I think it should. Let's call endpoints of x `x₁` and
+/// `x₂` and of `y` -- `y₁` and `y₂`. If `*y₁` belongs to both `x` and `y`, then
+/// we can find an index `i` such that `y₁ == x₁ + i`. This implies that `x₁ <=
+/// y₁` and `y₁ <= x₂`. If instead we say that somehow `x₁ <= y₁` and `y₁ <=
+/// x₂`, then again we can find an index `i` such that `y₁ == x₁ + i`. But
+/// according to the standard, `x₁ <= y₁` is undefined if `*x₁` and `*y₁` are
+/// not part of the same array. This means that this comparison can
+/// in theory return true even though `y₁` doesn't belong to `x`. But if this is
+/// the case, then we now have an element in `x` which is located at the same
+/// address as `*y₁`. I.e. a contradiction. Thus `y₁` does belong to `x`.
 template <class T1, class T2,
           class = std::enable_if_t<
               std::is_same_v<std::remove_const_t<T1>, std::remove_const_t<T2>>>>
