@@ -302,13 +302,14 @@ LBFGS_EXPORT auto negative_copy(gsl::span<float const> const src,
 
 } // namespace detail
 
+LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t() noexcept
+    : _workspace{}, _history{}, _func_history{}, _n{}
+{}
+
 LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(size_t const n, size_t const m,
                                               size_t const past)
     : _workspace{}, _history{}, _func_history{}, _n{}
 {
-    _workspace.reserve(1048576UL);
-    _history.reserve(32UL);
-    _func_history.reserve(128UL);
     resize(n, m, past);
 }
 
@@ -363,6 +364,27 @@ LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
                          {NaN, get(2 * m + 3), get(2 * m + 4)},
                          get(2 * m + 5),
                          {gsl::span<double>{_func_history}}};
+}
+
+LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
+                                     gsl::span<float const> x0) noexcept
+    -> lbfgs_buffers_t*
+{
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wexit-time-destructors"
+#endif
+    static thread_local lbfgs_buffers_t buffers;
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+    try {
+        buffers.resize(x0.size(), params.m, params.past);
+    }
+    catch (std::bad_alloc&) {
+        return nullptr;
+    }
+    return std::addressof(buffers);
 }
 
 constexpr auto iteration_history_t::emplace_back_impl(

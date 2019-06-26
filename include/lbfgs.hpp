@@ -141,10 +141,13 @@ class iteration_history_t {
         : _first{0}, _size{0}, _data{data}
     {}
 
-    iteration_history_t(iteration_history_t const&) = delete;
-    iteration_history_t(iteration_history_t&&)      = delete;
-    iteration_history_t& operator=(iteration_history_t const&) = delete;
-    iteration_history_t& operator=(iteration_history_t&&) = delete;
+    constexpr iteration_history_t(iteration_history_t const&) noexcept =
+        default;
+    constexpr iteration_history_t(iteration_history_t&&) noexcept = default;
+    constexpr iteration_history_t&
+    operator=(iteration_history_t const&) noexcept = default;
+    constexpr iteration_history_t&
+    operator=(iteration_history_t&&) noexcept = default;
 
     auto emplace_back(gsl::span<float const> x, gsl::span<float const> x_prev,
                       gsl::span<float const> g,
@@ -319,10 +322,14 @@ struct lbfgs_buffers_t {
     auto                  get(size_t const i) noexcept -> gsl::span<float>;
 
   public:
+    lbfgs_buffers_t() noexcept;
     lbfgs_buffers_t(size_t n, size_t m, size_t past);
     auto resize(size_t n, size_t m, size_t past) -> void;
     auto make_state() noexcept -> lbfgs_state_t;
 };
+
+auto thread_local_state(lbfgs_param_t const&   params,
+                        gsl::span<float const> x0) noexcept -> lbfgs_buffers_t*;
 
 inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
 {

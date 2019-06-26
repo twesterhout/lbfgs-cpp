@@ -17,9 +17,14 @@
 
 #include <iostream>
 
+/// \file line_search.hpp
+///
+///
+
 LBFGS_NAMESPACE_BEGIN
 
 // ========================== Public Interface ============================= {{{
+
 enum class status_t {
     success = 0,
     too_many_iterations,
@@ -37,26 +42,35 @@ enum class status_t {
 
 /// Parameters for the More-Thuente line search algorithm.
 struct ls_param_t {
-    /// Search interval length threshold.
+    /// \brief Search interval length threshold.
     ///
     /// The line search algorithm will stop if the search interval shrinks
-    /// below this threshold.
+    /// below this threshold. Setting #x_tol to 0 will disable the check.
     ///
+    /// \pre `x_tol >= 0`
     /// \see detail::interval_too_small_fn
     double x_tol;
-    /// Parameter μ in the sufficient decrease condition
+    /// \brief Parameter μ in the sufficient decrease condition
     /// (`ф(α) <= ф(0) + μ·α·ф'(0)`)
     ///
+    /// \pre `0 < f_tol && f_tol < 1`
     /// \see detail::strong_wolfe_fn
     double f_tol;
-    /// Parameter η in the curvature condition
+    /// \brief Parameter η in the curvature condition
     /// (`|ф'(α)| <= η·|ф'(0)|`)
     ///
+    /// \pre `0 < g_tol && g_tol < 1`
     /// \see detail::strong_wolfe_fn
     double g_tol;
-    /// Lower bound for the step size α.
+    /// \brief Lower bound for the step size α.
+    ///
+    /// \pre `0 < step_min && step_min < step_max`
+    /// \see detail::reached_min_step_fn
     double step_min;
-    /// Upper bound for the step size α.
+    /// \brief Upper bound for the step size α.
+    ///
+    /// \pre `0 < step_min && step_min < step_max`
+    /// \see detail::reached_min_step_fn
     double step_max;
     /// Maximum number of function evaluations.
     unsigned max_f_evals;
@@ -65,7 +79,9 @@ struct ls_param_t {
     /// Derivative at `α = 0` (i.e. `ф(0)`)
     double grad_0;
 
-    /// Some sane defaults for More-Thuente line search algorithm.
+    /// \brief Some sane defaults for More-Thuente line search algorithm.
+    ///
+    /// Pong
     constexpr ls_param_t() noexcept
         : x_tol{1e-8}
         , f_tol{1e-4}

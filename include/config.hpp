@@ -28,7 +28,14 @@
 
 #pragma once
 
-#if defined(__clang__)
+/// \file config.hpp
+///
+///
+
+/// \cond
+#if defined(LBFGS_DOXYGEN_IN_HOUSE)
+#    define LBFGS_ASSUME(cond) static_cast<void>(0)
+#elif defined(__clang__)
 #    define LBFGS_CLANG                                                        \
         (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
 #    define LBFGS_ASSUME(cond) __builtin_assume(cond)
@@ -49,8 +56,17 @@
 #error "Unsupported compiler. Please, submit a request to https://github.com/twesterhout/lbfgs-cpp/issues."
 // clang-format on
 #endif
+/// \endcond
 
-#if defined(WIN32) || defined(_WIN32)
+/// \cond
+#if defined(LBFGS_DOXYGEN_IN_HOUSE)
+#    define LBFGS_EXPORT
+#    define LBFGS_NOINLINE
+#    define LBFGS_FORCEINLINE inline
+#    define LBFGS_LIKELY(cond) (cond)
+#    define LBFGS_UNLIKELY(cond) (cond)
+#    define LBFGS_CURRENT_FUNCTION ""
+#elif defined(WIN32) || defined(_WIN32)
 #    define LBFGS_EXPORT __declspec(dllexport)
 #    define LBFGS_NOINLINE __declspec(noinline)
 #    define LBFGS_FORCEINLINE __forceinline inline
@@ -65,7 +81,9 @@
 #    define LBFGS_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
 #    define LBFGS_CURRENT_FUNCTION __PRETTY_FUNCTION__
 #endif
+/// \endcond
 
+/// \cond
 #define LBFGS_NAMESPACE tcm::lbfgs
 #define LBFGS_NAMESPACE_BEGIN                                                  \
     namespace tcm {                                                            \
@@ -73,14 +91,20 @@
 #define LBFGS_NAMESPACE_END                                                    \
     } /*namespace lbfgs*/                                                      \
     } /*namespace tcm*/
+/// \endcond
 
+/// \brief Produces some intermediate output which is useful for tracing steps
+/// of the algorithm.
+///
+/// \note Used for debugging only
 #define LBFGS_TRACE(fmt, ...)                                                  \
     do {                                                                       \
-        std::fprintf(                                                          \
+        ::std::fprintf(                                                        \
             stderr, "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m " fmt, \
             __FILE__, __LINE__, __VA_ARGS__);                                  \
     } while (false)
 
+/// \cond
 // clang-format off
 #define LBFGS_BUG_MESSAGE                                                    \
     "╔═════════════════════════════════════════════════════════════════╗\n"  \
@@ -89,7 +113,9 @@
     "║         https://github.com/twesterhout/lbfgs-cpp/issues         ║\n"  \
     "╚═════════════════════════════════════════════════════════════════╝"
 // clang-format on
+/// \endcond
 
+/// \cond
 #if defined(LBFGS_CLANG)
 // Clang refuses to display newlines in static_asserts
 #    define LBFGS_STATIC_ASSERT_BUG_MESSAGE                                    \
@@ -99,9 +125,13 @@
 #else
 #    define TCM_STATIC_ASSERT_BUG_MESSAGE "\n" TCM_BUG_MESSAGE
 #endif
+/// \endcond
 
 LBFGS_NAMESPACE_BEGIN
 namespace detail {
+/// \brief Terminated the program with a pretty message.
+///
+/// This function is called whenever an assertion fails.
 [[noreturn]] auto assert_fail(char const* expr, char const* file, unsigned line,
                               char const* function, char const* msg) noexcept
     -> void;
@@ -109,6 +139,12 @@ namespace detail {
 LBFGS_NAMESPACE_END
 
 namespace gsl {
+/// \brief Custom error handler for GSL contract violations.
+///
+/// We simply call #assert_fail().
+///
+/// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
+/// can use their own custom error handling functions.
 [[noreturn]] inline auto
 fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
                          int const line) noexcept -> void
@@ -118,7 +154,7 @@ fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
 }
 } // namespace gsl
 
-#if defined(LBFGS_DEBUG)
+#if !defined(LBFGS_DOXYGEN_IN_HOUSE) && defined(LBFGS_DEBUG)
 #    define LBFGS_ASSERT(cond, msg)                                            \
         (LBFGS_LIKELY(cond)                                                    \
              ? static_cast<void>(0)                                            \
@@ -126,6 +162,11 @@ fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
                  #cond, __FILE__, __LINE__,                                    \
                  static_cast<char const*>(LBFGS_CURRENT_FUNCTION), msg))
 #else
+/// \brief A slightly nicer alternative to #assert macro from `<cassert>`.
+///
+/// This macro can be used in `constexpr` and `noexcept` functions.
+///
+/// \note Enabled only when `LBFGS_DEBUG` is defined.
 #    define LBFGS_ASSERT(cond, msg) static_cast<void>(0)
 #endif
 
