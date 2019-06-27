@@ -461,6 +461,7 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
 {
     state.current.value = value_and_gradient(
         gsl::span<float const>{state.current.x}, state.current.grad);
+    LBFGS_TRACE("ping: %f\n", state.current.value);
 
     gradient_small_enough_fn gradient_is_small{state, params};
     too_little_progress_fn   too_little_progress{state, params};
@@ -471,9 +472,14 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
 
     detail::negative_copy(state.current.grad, state.direction);
 
+    LBFGS_TRACE("%s\n", "pong");
+
     line_search_runner_fn do_line_search{state, params};
 
+    LBFGS_TRACE("%s\n", "plong");
+
     for (auto iteration = 1u;; ++iteration) {
+        LBFGS_TRACE("%s\n", "dong");
         print_span("grad = ", state.current.grad);
         state.previous = state.current;
         print_span("d = ", state.direction);

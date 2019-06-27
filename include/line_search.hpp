@@ -3,19 +3,19 @@
 
 #include "config.hpp"
 
-#include <algorithm>
+// #include <algorithm>
 #include <cmath>
-#include <optional>
+// #include <optional>
 #include <system_error>
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <vector>
+// #include <vector>
 
 #include <unistd.h>
 #include <cstdio>
 
-#include <iostream>
+// #include <iostream>
 
 /// \file line_search.hpp
 ///
@@ -147,11 +147,31 @@ LBFGS_NAMESPACE_BEGIN
 
 namespace detail {
 
+template <class T, class Comp = std::less<T>>
+constexpr auto minmax(T const& x, T const& y, Comp comp = {}) noexcept(noexcept(
+    std::declval<Comp>()(std::declval<T const&>(), std::declval<T const&>())))
+    -> std::pair<T const&, T const&>
+{
+    using R = std::pair<T const&, T const&>;
+    return comp(y, x) ? R{y, x} : R{x, y};
+}
+
+template <class T, class Comp = std::less<T>>
+constexpr auto
+clamp(T const& x, T const& lo, T const& hi, Comp comp = {}) noexcept(noexcept(
+    std::declval<Comp>()(std::declval<T const&>(), std::declval<T const&>())))
+    -> T const&
+{
+    LBFGS_ASSERT(!comp(hi, lo), "invalid bounds");
+    return comp(x, lo) ? lo : comp(hi, x) ? hi : x;
+}
+
 // ========================= Some data structures ========================== {{{
 
 /// \brief Line search interval `I`.
 ///
-/// #interval_t maintains the property that `min() <= max()`.
+/// #tcm::lbfgs::detail::interval_t maintains the property that #min() <=
+/// #max(). It is a lightweight trivially copyable wrapper around two `double`s.
 class interval_t {
   private:
     double _min; ///< Lower bound
@@ -182,7 +202,7 @@ class interval_t {
         if (bracketed) {
             LBFGS_ASSERT(std::min(x, y) <= t && t <= std::max(x, y),
                          "invalid αₜ");
-            std::tie(_min, _max) = std::minmax(x, y);
+            std::tie(_min, _max) = minmax(x, y);
         }
         else {
             // See the explanation around eq. (2.2) on p. 291
@@ -197,16 +217,22 @@ class interval_t {
     constexpr interval_t& operator=(interval_t const&) noexcept = default;
     constexpr interval_t& operator=(interval_t&&) noexcept = default;
 
+    /// Returns the length of the interval
     constexpr auto length() const noexcept { return _max - _min; }
+    /// Returns the lower bound of the interval
     constexpr auto min() const noexcept { return _min; }
+    /// Returns the upper bound of the interval
     constexpr auto max() const noexcept { return _max; }
 };
 
+static_assert(std::is_trivially_copyable_v<interval_t>,
+              LBFGS_STATIC_ASSERT_BUG_MESSAGE);
+
 /// \brief A point of the search interval.
 ///
-/// It is used for two endpoints of `I` and `αₜ`.
+/// It is used for representing two endpoints of `I` and the trial `αₜ`.
 struct endpoint_t {
-    double alpha; ///< α
+    double alpha; ///< step α
     double func;  ///< either ф(α) or ψ(α) depending on the stage
     double grad;  ///< either ф'(α) or ψ'(α) depending on the stage
 };
@@ -752,8 +778,7 @@ auto line_search(
     strong_wolfe_fn       strong_wolfe{_result, state, params};
 
     for (;;) {
-        state.t.alpha =
-            std::clamp(state.t.alpha, params.step_min, params.step_max);
+        state.t.alpha = clamp(state.t.alpha, params.step_min, params.step_max);
         LBFGS_TRACE("proposed αₜ=%f, I = [%f, %f]\n", state.t.alpha,
                     state.interval.min(), state.interval.max());
         if (auto r = interval_too_small(); r) { return *r; }
@@ -805,7 +830,8 @@ auto line_search(
     auto   r      = detail::line_search(
         [&value_and_gradient,
          &cached](auto const x) -> std::pair<double, double> {
-            static_assert(std::is_same<decltype(x), double const>::value);
+            static_assert(std::is_same_v<decltype(x), double const>,
+                          LBFGS_STATIC_ASSERT_BUG_MESSAGE);
             cached                      = x;
             auto const [func, gradient] = value_and_gradient(x);
             return {func, gradient};

@@ -1,4 +1,5 @@
 #include "lbfgs.hpp"
+#include <iostream>
 
 int main()
 {
@@ -23,13 +24,19 @@ int main()
         return f_x;
     };
 
-    tcm::lbfgs::lbfgs_buffers_t buffers(10, 5, 100);
+    tcm::lbfgs::lbfgs_buffers_t buffers(10, 5, 0);
     auto                        state = buffers.make_state();
 
     std::copy(std::begin(x), std::end(x), std::begin(state.current.x));
     state.current.value =
         value_and_gradient(state.current.x, state.current.grad);
     std::cerr << "initial value = " << state.current.value << '\n';
+
+    tcm::lbfgs::print_span("x    = ", state.current.x);
+    tcm::lbfgs::print_span("grad = ", state.current.grad);
+    tcm::lbfgs::print_span("x    = ", state.previous.x);
+    tcm::lbfgs::print_span("grad = ", state.previous.grad);
+    tcm::lbfgs::print_span("dir  = ", state.direction);
 
     tcm::lbfgs::minimize(value_and_gradient, tcm::lbfgs::lbfgs_param_t{},
                          state);

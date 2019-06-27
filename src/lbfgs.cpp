@@ -331,8 +331,9 @@ constexpr auto lbfgs_buffers_t::vector_size(size_t const n) noexcept -> size_t
 
 auto lbfgs_buffers_t::get(size_t const i) noexcept -> gsl::span<float>
 {
-    LBFGS_ASSERT((i + 1) * _n <= _workspace.size(), "index out of bounds");
     auto const size = vector_size(_n);
+    LBFGS_TRACE("%zu * %zu + %zu <= %zu\n", i, size, _n, _workspace.size());
+    LBFGS_ASSERT(i * size + _n <= _workspace.size(), "index out of bounds");
     return {_workspace.data() + i * size, _n};
 }
 
@@ -360,9 +361,9 @@ LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
     constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
     auto const     m   = _history.size();
     return lbfgs_state_t{{gsl::span<iteration_data_t>{_history}},
-                         {NaN, get(2 * m + 1), get(2 * m + 2)},
-                         {NaN, get(2 * m + 3), get(2 * m + 4)},
-                         get(2 * m + 5),
+                         {NaN, get(2 * m + 0), get(2 * m + 1)},
+                         {NaN, get(2 * m + 2), get(2 * m + 3)},
+                         get(2 * m + 4),
                          {gsl::span<double>{_func_history}}};
 }
 
