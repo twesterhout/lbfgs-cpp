@@ -345,7 +345,7 @@ LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t const n, size_t const m,
         // keep dangling pointers
         _history.clear();
         _history.resize(
-            m, {0.0f, std::numeric_limits<float>::quiet_NaN(), {}, {}});
+            m, {0.0, std::numeric_limits<double>::quiet_NaN(), {}, {}});
         _n = n;
         _workspace.resize(vector_size(n) * number_vectors(m));
         for (auto i = size_t{0}; i < _history.size(); ++i) {
@@ -405,13 +405,17 @@ constexpr auto iteration_history_t::emplace_back_impl(
     auto       s_dot_y = 0.0;
     auto       y_dot_y = 0.0;
     for (auto i = size_t{0}; i < n; ++i) {
-        s[i] = x[i] - x_prev[i];
-        y[i] = g[i] - g_prev[i];
-        s_dot_y += s[i] * y[i];
-        y_dot_y += y[i] * y[i];
+        auto const s_i =
+            static_cast<double>(x[i]) - static_cast<double>(x_prev[i]);
+        auto const y_i =
+            static_cast<double>(g[i]) - static_cast<double>(g_prev[i]);
+        s[i] = static_cast<float>(s_i);
+        y[i] = static_cast<float>(y_i);
+        s_dot_y += s_i * y_i;
+        y_dot_y += y_i * y_i;
     }
     _data[idx].s_dot_y = s_dot_y;
-    _data[idx].alpha   = std::numeric_limits<float>::quiet_NaN();
+    _data[idx].alpha   = std::numeric_limits<double>::quiet_NaN();
     LBFGS_ASSERT(s_dot_y > 0, "something went wrong during line search");
     return s_dot_y / y_dot_y;
 }
@@ -592,8 +596,8 @@ auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
                       // alpha_i <- rho_i*s_i^T*q
                       x.alpha = detail::dot(x.s, q) / x.s_dot_y;
                       // q <- q - alpha_i*y_i
-                      detail::axpy(-x.alpha, x.y, q);
-                      printf("α=%f\n", x.alpha);
+                      detail::axpy(static_cast<float>(-x.alpha), x.y, q);
+                      LBFGS_TRACE("α=%f\n", x.alpha);
                       print_span("q=", q);
                   });
     // r <- H_k^0*q
@@ -605,7 +609,7 @@ auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
         // beta <- rho_i * y_i^T * r
         auto const beta = detail::dot(x.y, q) / x.s_dot_y;
         // r <- r + s_i * ( alpha_i - beta)
-        detail::axpy(x.alpha - beta, x.s, q);
+        detail::axpy(static_cast<float>(x.alpha - beta), x.s, q);
         printf("β=%f\n", beta);
         print_span("q=", q);
     });

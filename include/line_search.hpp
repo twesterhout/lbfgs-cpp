@@ -3,19 +3,14 @@
 
 #include "config.hpp"
 
-// #include <algorithm>
-#include <cmath>
-// #include <optional>
-#include <system_error>
-#include <tuple>
+#include <cmath>        // std::sqrt
+#include <system_error> // std::is_error_code
+#include <tuple>        // std::tie
 #include <type_traits>
 #include <utility>
-// #include <vector>
 
 #include <unistd.h>
 #include <cstdio>
-
-// #include <iostream>
 
 /// \file line_search.hpp
 ///
@@ -147,6 +142,8 @@ LBFGS_NAMESPACE_BEGIN
 
 namespace detail {
 
+/// In-house implementation of std::minmax(), because it feels wrong to include
+/// `<algorithm>` for just one or two simple functions.
 template <class T, class Comp = std::less<T>>
 constexpr auto minmax(T const& x, T const& y, Comp comp = {}) noexcept(noexcept(
     std::declval<Comp>()(std::declval<T const&>(), std::declval<T const&>())))
@@ -156,6 +153,8 @@ constexpr auto minmax(T const& x, T const& y, Comp comp = {}) noexcept(noexcept(
     return comp(y, x) ? R{y, x} : R{x, y};
 }
 
+/// In-house implementation of std::clamp(), because it feels wrong to include
+/// `<algorithm>` for just one or two simple functions.
 template <class T, class Comp = std::less<T>>
 constexpr auto
 clamp(T const& x, T const& lo, T const& hi, Comp comp = {}) noexcept(noexcept(

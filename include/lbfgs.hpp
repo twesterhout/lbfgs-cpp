@@ -114,8 +114,8 @@ auto negative_copy(gsl::span<float const> const src,
 } // namespace detail
 
 struct iteration_data_t {
-    float            s_dot_y;
-    float            alpha;
+    double           s_dot_y;
+    double           alpha;
     gsl::span<float> s;
     gsl::span<float> y;
 };
@@ -335,9 +335,9 @@ inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
 {
     std::printf("%s [", prefix);
     if (!xs.empty()) {
-        std::printf("%f", xs[0]);
+        std::printf("%f", static_cast<double>(xs[0]));
         for (auto i = size_t{1}; i < xs.size(); ++i) {
-            std::printf(", %f", xs[i]);
+            std::printf(", %f", static_cast<double>(xs[i]));
         }
     }
     std::printf("]\n");
