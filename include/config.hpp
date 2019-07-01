@@ -93,16 +93,21 @@
     } /*namespace tcm*/
 /// \endcond
 
+#if defined(LBFGS_DEBUG)
 /// \brief Produces some intermediate output which is useful for tracing steps
 /// of the algorithm.
 ///
 /// \note Used for debugging only
-#define LBFGS_TRACE(fmt, ...)                                                  \
-    do {                                                                       \
-        ::std::fprintf(                                                        \
-            stderr, "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m " fmt, \
-            __FILE__, __LINE__, __VA_ARGS__);                                  \
-    } while (false)
+#    define LBFGS_TRACE(fmt, ...)                                              \
+        do {                                                                   \
+            ::std::fprintf(                                                    \
+                stderr,                                                        \
+                "\x1b[1m\x1b[97m%s:%i:\x1b[0m \x1b[90mtrace:\x1b[0m " fmt,     \
+                __FILE__, __LINE__, __VA_ARGS__);                              \
+        } while (false)
+#else
+#    define LBFGS_TRACE(fmt, ...) static_cast<void>(0);
+#endif
 
 /// \cond
 // clang-format off

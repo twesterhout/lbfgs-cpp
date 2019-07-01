@@ -22,6 +22,10 @@ LBFGS_NAMESPACE_BEGIN
 
 enum class status_t {
     success = 0,
+    out_of_memory,
+    invalid_storage_size,
+    invalid_epsilon,
+    invalid_delta,
     too_many_iterations,
     invalid_argument,
     rounding_errors_prevent_progress,
@@ -753,9 +757,18 @@ auto line_search(
     -> ls_result_t
 {
     constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
-    LBFGS_ASSERT(check_parameters(params) == status_t::success,
-                 "invalid parametes");
-    LBFGS_ASSERT(alpha_0 > 0, "invalid initial step");
+    if (auto status = check_parameters(params);
+        LBFGS_UNLIKELY(status != status_t::success)) {
+        return {status, 0.0, params.func_0, params.grad_0, 0, true};
+    }
+    if (LBFGS_UNLIKELY(alpha_0 <= 0.0)) {
+        return {status_t::invalid_argument,
+                0.0,
+                params.func_0,
+                params.grad_0,
+                0,
+                true};
+    }
     auto state = ls_state_t{
         /*x=*/endpoint_t{0, params.func_0, params.grad_0},
         /*y=*/endpoint_t{0, params.func_0, params.grad_0},

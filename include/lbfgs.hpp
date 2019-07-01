@@ -3,12 +3,12 @@
 
 #include "config.hpp"
 
-#include <algorithm>
-#include <cmath>
+// #include <algorithm>
+// #include <cmath>
 #include <cstring>
-#include <iterator>
+// #include <iterator>
 #include <numeric>
-#include <optional>
+// #include <optional>
 #include <system_error>
 #include <tuple>
 #include <type_traits>
@@ -18,8 +18,8 @@
 #include <gsl/gsl-lite.hpp>
 #include <cblas.h>
 
-#include <unistd.h>
-#include <cstdio>
+// #include <unistd.h>
+// #include <cstdio>
 
 #include "line_search.hpp"
 
@@ -92,6 +92,12 @@ struct lbfgs_param_t {
     }
 };
 
+struct lbfgs_result_t {
+    status_t status;   ///< Termination status
+    unsigned num_iter; ///< Number of iterations
+    double   func;     ///< Function value
+};
+
 namespace detail {
 // A hacky way of determining the integral type BLAS uses for sizes and
 // increments: we pattern match on the signature of `cblas_sdot`.
@@ -111,6 +117,25 @@ auto axpy(float const a, gsl::span<float const> x, gsl::span<float> y) noexcept
 auto scal(float const a, gsl::span<float> x) noexcept -> void;
 auto negative_copy(gsl::span<float const> const src,
                    gsl::span<float> const       dst) noexcept -> void;
+} // namespace detail
+
+namespace detail {
+constexpr auto check_parameters(lbfgs_param_t const& p) noexcept -> status_t
+{
+    if (p.m <= 0) return status_t::invalid_storage_size;
+    if (p.epsilon < 0) return status_t::invalid_epsilon;
+    if (p.delta < 0) return status_t::invalid_delta;
+    if (std::isnan(p.x_tol) || p.x_tol <= 0.0)
+        return status_t::invalid_interval_tolerance;
+    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0)
+        return status_t::invalid_function_tolerance;
+    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0)
+        return status_t::invalid_gradient_tolerance;
+    if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0
+        || p.step_max <= p.step_min)
+        return status_t::invalid_step_bounds;
+    return status_t::success;
+}
 } // namespace detail
 
 struct iteration_data_t {
@@ -380,7 +405,9 @@ struct line_search_runner_fn {
                 double, Function, gsl::span<float const>, gsl::span<float>>;
         }
 
-        auto operator()(double const alpha) const noexcept(is_noexcept())
+        auto operator()(double const alpha,
+                        std::false_type /*compute gradient*/) const
+            noexcept(is_noexcept())
         {
             for (auto i = size_t{0}; i < x.size(); ++i) {
                 x[i] = x_0[i] + static_cast<float>(alpha) * direction[i];
@@ -388,6 +415,14 @@ struct line_search_runner_fn {
             // Yes, we want implicit conversion to double here!
             double const f_x = value_and_gradient(
                 static_cast<gsl::span<float const>>(x), grad);
+            return f_x;
+        }
+
+        auto operator()(double const alpha,
+                        std::true_type /*compute gradient*/ = {}) const
+            noexcept(is_noexcept())
+        {
+            auto const f_x  = (*this)(alpha, std::false_type{});
             auto const df_x = detail::dot(grad, direction);
             return std::make_pair(f_x, df_x);
         }
@@ -407,14 +442,12 @@ struct line_search_runner_fn {
             _state.previous.x, _state.direction};
         auto const result =
             line_search(wrapper, _params.at_zero(func_0, grad_0), step_0);
-        if (result.status != status_t::success) { return result.status; }
-        // TODO(twesterhout): This runs an extra dot operation
-        if (!result.cached) { wrapper(result.step); }
         _state.current.value = result.func;
+        if (!result.cached) { wrapper(result.step, std::false_type{}); }
         LBFGS_TRACE("f(x)=%f, f'(x)=%f\n", _state.current.value,
                     static_cast<double>(result.grad));
         print_span("x = ", _state.current.x);
-        return status_t::success;
+        return result.status;
     }
 
   private:
@@ -457,42 +490,38 @@ struct too_little_progress_fn {
 
 template <class Function>
 auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
-              lbfgs_state_t& state) -> status_t
+              lbfgs_state_t& state) -> lbfgs_result_t
 {
     state.current.value = value_and_gradient(
         gsl::span<float const>{state.current.x}, state.current.grad);
-    LBFGS_TRACE("ping: %f\n", state.current.value);
 
     gradient_small_enough_fn gradient_is_small{state, params};
     too_little_progress_fn   too_little_progress{state, params};
+    line_search_runner_fn    do_line_search{state, params};
 
     auto const grad_0_norm = detail::nrm2(state.current.grad);
-    if (gradient_is_small(grad_0_norm)) { return status_t::success; }
+    if (gradient_is_small(grad_0_norm)) {
+        return {status_t::success, 0, state.current.value};
+    }
     auto step = 1.0 / grad_0_norm;
-
     detail::negative_copy(state.current.grad, state.direction);
 
-    LBFGS_TRACE("%s\n", "pong");
-
-    line_search_runner_fn do_line_search{state, params};
-
-    LBFGS_TRACE("%s\n", "plong");
-
     for (auto iteration = 1u;; ++iteration) {
-        LBFGS_TRACE("%s\n", "dong");
-        print_span("grad = ", state.current.grad);
         state.previous = state.current;
-        print_span("d = ", state.direction);
 
         if (auto const status = do_line_search(value_and_gradient, step);
             status != status_t::success) {
-            return status;
+            return {status, iteration, state.current.value};
         }
-
-        if (gradient_is_small()) { return status_t::success; }
-        if (too_little_progress()) { return status_t::success; }
+        if (gradient_is_small()) {
+            return {status_t::success, iteration, state.current.value};
+        }
+        if (too_little_progress()) {
+            return {status_t::success, iteration, state.current.value};
+        }
         if (iteration == params.max_iter) {
-            return status_t::too_many_iterations;
+            return {status_t::too_many_iterations, iteration,
+                    state.current.value};
         }
 
         auto const gamma =
@@ -504,6 +533,26 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
         // From now on, always start with αₜ = 1
         step = 1.0;
     }
+}
+
+template <class Function>
+auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
+              gsl::span<float> x) -> lbfgs_result_t
+{
+    if (auto status = detail::check_parameters(params);
+        LBFGS_UNLIKELY(status != status_t::success)) {
+        return {status, 0, std::numeric_limits<double>::quiet_NaN()};
+    }
+    auto* const buffers = thread_local_state(params, x);
+    if (LBFGS_UNLIKELY(buffers == nullptr)) {
+        return {status_t::out_of_memory, 0,
+                std::numeric_limits<double>::quiet_NaN()};
+    }
+    auto state = buffers->make_state();
+    std::memcpy(state.current.x.data(), x.data(), x.size() * sizeof(float));
+    auto const result = minimize(std::move(value_and_gradient), params, state);
+    std::memcpy(x.data(), state.current.x.data(), x.size() * sizeof(float));
+    return result;
 }
 
 LBFGS_NAMESPACE_END
