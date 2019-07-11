@@ -2,13 +2,10 @@
 #pragma once
 
 #include "config.hpp"
+#include "line_search.hpp"
 
-// #include <algorithm>
-// #include <cmath>
-#include <cstring>
-// #include <iterator>
+#include <cstring> // std::memcpy
 #include <numeric>
-// #include <optional>
 #include <system_error>
 #include <tuple>
 #include <type_traits>
@@ -18,10 +15,8 @@
 #include <gsl/gsl-lite.hpp>
 #include <cblas.h>
 
-// #include <unistd.h>
-// #include <cstdio>
-
-#include "line_search.hpp"
+/// \file lbfgs.hpp
+///
 
 LBFGS_NAMESPACE_BEGIN
 
@@ -79,6 +74,7 @@ struct lbfgs_param_t {
     /// Some sane defaults for the parameters.
     constexpr lbfgs_param_t() noexcept : lbfgs_param_t{ls_param_t{}} {}
 
+    /// Returns the parameters for More-Thuente line search.
     constexpr auto line_search() const noexcept -> ls_param_t
     {
         ls_param_t p;
@@ -98,18 +94,16 @@ struct lbfgs_result_t {
     double   func;     ///< Function value
 };
 
+struct lbfgs_buffers_t;
+
+auto thread_local_state(lbfgs_param_t const&   params,
+                        gsl::span<float const> x0) noexcept -> lbfgs_buffers_t*;
+
+template <class Function>
+auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
+              gsl::span<float> x) -> lbfgs_result_t;
+
 namespace detail {
-// A hacky way of determining the integral type BLAS uses for sizes and
-// increments: we pattern match on the signature of `cblas_sdot`.
-template <class T> struct get_blas_int_type;
-
-template <class T>
-struct get_blas_int_type<float (*)(T, float const*, T, float const*, T)> {
-    using type = T;
-};
-
-using blas_int = typename get_blas_int_type<decltype(&cblas_sdot)>::type;
-
 auto dot(gsl::span<float const> a, gsl::span<float const> b) noexcept -> double;
 auto nrm2(gsl::span<float const> x) noexcept -> double;
 auto axpy(float const a, gsl::span<float const> x, gsl::span<float> y) noexcept
@@ -117,9 +111,8 @@ auto axpy(float const a, gsl::span<float const> x, gsl::span<float> y) noexcept
 auto scal(float const a, gsl::span<float> x) noexcept -> void;
 auto negative_copy(gsl::span<float const> const src,
                    gsl::span<float> const       dst) noexcept -> void;
-} // namespace detail
 
-namespace detail {
+/// Checks \p p for validity.
 constexpr auto check_parameters(lbfgs_param_t const& p) noexcept -> status_t
 {
     if (p.m <= 0) return status_t::invalid_storage_size;
@@ -136,7 +129,6 @@ constexpr auto check_parameters(lbfgs_param_t const& p) noexcept -> status_t
         return status_t::invalid_step_bounds;
     return status_t::success;
 }
-} // namespace detail
 
 struct iteration_data_t {
     double           s_dot_y;
@@ -258,14 +250,6 @@ class func_eval_history_t {
     gsl::span<double> _data;
 };
 
-template <size_t Alignment>
-constexpr auto align_up(size_t const value) noexcept -> size_t
-{
-    static_assert(Alignment != 0 && (Alignment & (Alignment - 1)) == 0,
-                  "Invalid alignment");
-    return (value + (Alignment - 1)) & ~(Alignment - 1);
-}
-
 /// Returns whether two spans are overlapping.
 ///
 /// \note I'm still not 100% certain this code is guaranteed to work by the
@@ -292,9 +276,10 @@ constexpr auto are_overlapping(gsl::span<T1> const x,
            || (y_ptr <= x_ptr && x_ptr <= y_ptr + y.size());
 }
 
+/// \brief Point
 struct lbfgs_point_t {
-    double           value;
-    gsl::span<float> x;
+    double           value; ///< Function value at #tcm::lbfgs::lbfgs_point_t::x
+    gsl::span<float> x;     ///< Point in parameter space.
     gsl::span<float> grad;
 
     constexpr lbfgs_point_t(double const _value, gsl::span<float> _x,
@@ -334,13 +319,14 @@ struct lbfgs_state_t {
     gsl::span<float>    direction;
     func_eval_history_t function_history;
 };
+} // namespace detail
 
 struct lbfgs_buffers_t {
   private:
-    std::vector<float>            _workspace;
-    std::vector<iteration_data_t> _history;
-    std::vector<double>           _func_history;
-    size_t                        _n;
+    std::vector<float>                    _workspace;
+    std::vector<detail::iteration_data_t> _history;
+    std::vector<double>                   _func_history;
+    size_t                                _n;
 
     static constexpr auto number_vectors(size_t const m) noexcept -> size_t;
     static constexpr auto vector_size(size_t const n) noexcept -> size_t;
@@ -350,12 +336,10 @@ struct lbfgs_buffers_t {
     lbfgs_buffers_t() noexcept;
     lbfgs_buffers_t(size_t n, size_t m, size_t past);
     auto resize(size_t n, size_t m, size_t past) -> void;
-    auto make_state() noexcept -> lbfgs_state_t;
+    auto make_state() noexcept -> detail::lbfgs_state_t;
 };
 
-auto thread_local_state(lbfgs_param_t const&   params,
-                        gsl::span<float const> x0) noexcept -> lbfgs_buffers_t*;
-
+#if 0
 inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
 {
     std::printf("%s [", prefix);
@@ -367,7 +351,9 @@ inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
     }
     std::printf("]\n");
 }
+#endif
 
+namespace detail {
 auto apply_inverse_hessian(iteration_history_t& history, double const gamma,
                            gsl::span<float> const q) -> void;
 
@@ -436,7 +422,6 @@ struct line_search_runner_fn {
         auto const func_0 = _state.current.value;
         auto const grad_0 = detail::dot(_state.direction, _state.current.grad);
         LBFGS_TRACE("f(x_0) = %f, f'(x_0) = %f\n", func_0, grad_0);
-        print_span("grad = ", _state.current.grad);
         auto wrapper = wrapper_t<Function&>{
             value_and_gradient, _state.current.x, _state.current.grad,
             _state.previous.x, _state.direction};
@@ -446,7 +431,6 @@ struct line_search_runner_fn {
         if (!result.cached) { wrapper(result.step, std::false_type{}); }
         LBFGS_TRACE("f(x)=%f, f'(x)=%f\n", _state.current.value,
                     static_cast<double>(result.grad));
-        print_span("x = ", _state.current.x);
         return result.status;
     }
 
@@ -534,6 +518,7 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
         step = 1.0;
     }
 }
+} // namespace detail
 
 template <class Function>
 auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
@@ -543,6 +528,12 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
         LBFGS_UNLIKELY(status != status_t::success)) {
         return {status, 0, std::numeric_limits<double>::quiet_NaN()};
     }
+    if (x.empty()) {
+        // There's nothing to optimise
+        return {
+            status_t::success, 1,
+            value_and_gradient(gsl::span<float const>{x}, gsl::span<float>{})};
+    }
     auto* const buffers = thread_local_state(params, x);
     if (LBFGS_UNLIKELY(buffers == nullptr)) {
         return {status_t::out_of_memory, 0,
@@ -550,7 +541,8 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
     }
     auto state = buffers->make_state();
     std::memcpy(state.current.x.data(), x.data(), x.size() * sizeof(float));
-    auto const result = minimize(std::move(value_and_gradient), params, state);
+    auto const result =
+        detail::minimize(std::move(value_and_gradient), params, state);
     std::memcpy(x.data(), state.current.x.data(), x.size() * sizeof(float));
     return result;
 }

@@ -1,6 +1,5 @@
 
 #include "lbfgs.hpp"
-#include <system_error>
 
 LBFGS_NAMESPACE_BEGIN
 
@@ -29,6 +28,10 @@ auto lbfgs_error_category::message(int const value) const -> std::string
 {
     switch (static_cast<status_t>(value)) {
     case status_t::success: return "no error";
+    case status_t::out_of_memory: return "out of memory";
+    case status_t::invalid_storage_size: return "invalid m (storage size)";
+    case status_t::invalid_epsilon: return "invalid epsilon";
+    case status_t::invalid_delta: return "invalid delta";
     case status_t::too_many_iterations: return "too many iterations";
     case status_t::invalid_argument: return "received an invalid argument";
     case status_t::rounding_errors_prevent_progress:
@@ -247,6 +250,17 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
 } // namespace detail
 
 namespace detail {
+// A hacky way of determining the integral type BLAS uses for sizes and
+// increments: we pattern match on the signature of `cblas_sdot`.
+template <class T> struct get_blas_int_type;
+
+template <class T>
+struct get_blas_int_type<float (*)(T, float const*, T, float const*, T)> {
+    using type = T;
+};
+
+using blas_int = typename get_blas_int_type<decltype(&cblas_sdot)>::type;
+
 LBFGS_EXPORT auto dot(gsl::span<float const> a,
                       gsl::span<float const> b) noexcept -> double
 {
@@ -300,6 +314,14 @@ LBFGS_EXPORT auto negative_copy(gsl::span<float const> const src,
     }
 }
 
+template <size_t Alignment>
+constexpr auto align_up(size_t const value) noexcept -> size_t
+{
+    static_assert(Alignment != 0 && (Alignment & (Alignment - 1)) == 0,
+                  "Invalid alignment");
+    return (value + (Alignment - 1)) & ~(Alignment - 1);
+}
+
 } // namespace detail
 
 LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t() noexcept
@@ -326,7 +348,7 @@ constexpr auto lbfgs_buffers_t::number_vectors(size_t const m) noexcept
 
 constexpr auto lbfgs_buffers_t::vector_size(size_t const n) noexcept -> size_t
 {
-    return align_up<64UL / sizeof(float)>(n);
+    return detail::align_up<64UL / sizeof(float)>(n);
 }
 
 auto lbfgs_buffers_t::get(size_t const i) noexcept -> gsl::span<float>
@@ -356,15 +378,17 @@ LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t const n, size_t const m,
     if (past != _func_history.size()) { _func_history.resize(past); }
 }
 
-LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept -> lbfgs_state_t
+LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept
+    -> detail::lbfgs_state_t
 {
     constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
     auto const     m   = _history.size();
-    return lbfgs_state_t{{gsl::span<iteration_data_t>{_history}},
-                         {NaN, get(2 * m + 0), get(2 * m + 1)},
-                         {NaN, get(2 * m + 2), get(2 * m + 3)},
-                         get(2 * m + 4),
-                         {gsl::span<double>{_func_history}}};
+    return detail::lbfgs_state_t{
+        {gsl::span<detail::iteration_data_t>{_history}},
+        {NaN, get(2 * m + 0), get(2 * m + 1)},
+        {NaN, get(2 * m + 2), get(2 * m + 3)},
+        get(2 * m + 4),
+        {gsl::span<double>{_func_history}}};
 }
 
 LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
@@ -388,6 +412,7 @@ LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
     return std::addressof(buffers);
 }
 
+namespace detail {
 constexpr auto iteration_history_t::emplace_back_impl(
     gsl::span<float const> x, gsl::span<float const> x_prev,
     gsl::span<float const> g, gsl::span<float const> g_prev) noexcept -> double
@@ -598,12 +623,10 @@ auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
                       // q <- q - alpha_i*y_i
                       detail::axpy(static_cast<float>(-x.alpha), x.y, q);
                       LBFGS_TRACE("α=%f\n", x.alpha);
-                      print_span("q=", q);
                   });
     // r <- H_k^0*q
     detail::scal(static_cast<float>(gamma), q);
     printf("γ=%f\n", gamma);
-    print_span("q=", q);
     //for i = k − m, k − m + 1, . . . , k − 1
     std::for_each(begin, end, [q](auto& x) {
         // beta <- rho_i * y_i^T * r
@@ -611,7 +634,6 @@ auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
         // r <- r + s_i * ( alpha_i - beta)
         detail::axpy(static_cast<float>(x.alpha - beta), x.s, q);
         printf("β=%f\n", beta);
-        print_span("q=", q);
     });
     // stop with result "H_k*f_f'=q"
 }
@@ -622,5 +644,7 @@ LBFGS_EXPORT auto apply_inverse_hessian(iteration_history_t&   history,
 {
     apply_inverse_hessian(history.begin(), history.end(), gamma, q);
 }
+
+} // namespace detail
 
 LBFGS_NAMESPACE_END

@@ -9,9 +9,6 @@
 #include <type_traits>
 #include <utility>
 
-#include <unistd.h>
-#include <cstdio>
-
 /// \file line_search.hpp
 ///
 ///
@@ -20,6 +17,7 @@ LBFGS_NAMESPACE_BEGIN
 
 // ========================== Public Interface ============================= {{{
 
+/// Return codes used by LBFGS++ library
 enum class status_t {
     success = 0,
     out_of_memory,
@@ -80,7 +78,8 @@ struct ls_param_t {
 
     /// \brief Some sane defaults for More-Thuente line search algorithm.
     ///
-    /// Pong
+    /// \note #func_0 and #grad_0 are set to `NaN`, so be
+    /// sure to reset them using #at_zero() before calling #line_search().
     constexpr ls_param_t() noexcept
         : x_tol{1e-8}
         , f_tol{1e-4}
@@ -92,7 +91,7 @@ struct ls_param_t {
         , grad_0{std::numeric_limits<double>::quiet_NaN()}
     {}
 
-    /// A convenience function for setting the initial state.
+    /// \brief A convenience function for setting the initial state.
     ///
     /// A common use case is to pass `ls_param_t{}.at_zero(my_value,
     /// my_grad)` to the line search algorithm.
@@ -121,6 +120,7 @@ struct ls_result_t {
     bool cached;
 };
 
+/// \brief More-Thuente line search algorithm.
 template <class Function>
 LBFGS_NOINLINE auto
 line_search(Function&& value_and_gradient, ls_param_t const& params,
@@ -138,6 +138,7 @@ auto make_error_code(status_t) noexcept -> std::error_code;
 LBFGS_NAMESPACE_END
 
 namespace std {
+/// Make `status_t` act as an error code.
 template <>
 struct is_error_code_enum<::LBFGS_NAMESPACE::status_t> : false_type {};
 } // namespace std
@@ -427,10 +428,11 @@ minimise_quadratic_interpolation(double const a, double const df_a,
 /// If we then compute the second derivative ``d²P(x)/dx²``, we'll see that
 /// only ``γ * (a - b) > 0`` results in positive curvatuve.
 ///
-inline auto minimise_cubic_interpolation(double const a, double const f_a,
-                                         double const df_a, double const b,
-                                         double const f_b,
-                                         double const df_b) noexcept -> double
+constexpr auto minimise_cubic_interpolation(double const a, double const f_a,
+                                            double const df_a, double const b,
+                                            double const f_b,
+                                            double const df_b) noexcept
+    -> double
 {
     LBFGS_ASSERT(a != b, "Precondition violated");
     auto const length = b - a;
@@ -455,7 +457,7 @@ struct interval_too_small_fn {
     ls_param_t const& params; ///< Algorithm options
 
     /// \brief Checks whether the search interval has shrunk below the threshold
-    /// which is given by #params.x_tol.
+    /// which is given by #ls_param_t::x_tol.
     ///
     /// If the interval is indeed too small, #result is set to the best state
     /// obtained so far and a pointer to it is returned.
@@ -745,11 +747,14 @@ template <class Function> struct evaluate_fn {
     }
 };
 
+/// \cond
 template <class Function>
 evaluate_fn(Function&, ls_state_t&)->evaluate_fn<Function>;
+/// \endcond
 
+/// Kernel of the algorithm
 template <class Function>
-auto line_search(
+auto line_search_impl(
     Function value_and_gradient, ls_param_t const& params,
     double const alpha_0) noexcept(noexcept(std::
                                                 declval<Function&>()(
@@ -839,7 +844,7 @@ auto line_search(
     -> ls_result_t
 {
     double cached = std::numeric_limits<double>::quiet_NaN();
-    auto   r      = detail::line_search(
+    auto   r      = detail::line_search_impl(
         [&value_and_gradient,
          &cached](auto const x) -> std::pair<double, double> {
             static_assert(std::is_same_v<decltype(x), double const>,
