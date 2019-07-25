@@ -184,3 +184,89 @@ TEST_CASE("Rosenbrock function", "[lbfgs]")
         }
     }
 }
+
+TEST_CASE("Beale function", "[lbfgs]")
+{
+    // In Maple:
+    // f(x, y) := (1.5 - x + x * y)^2 + (2.25 - x + x * y^2)^2 + (2.625 - x + x * y^3)^2;
+    auto const value_and_gradient = [](auto const xs, auto const gs) {
+        static_assert(std::is_same_v<std::remove_const_t<decltype(xs)>,
+                                     gsl::span<float const>>);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(gs)>,
+                                     gsl::span<float>>);
+        LBFGS_ASSERT(xs.size() == 2, LBFGS_BUG_MESSAGE);
+        auto const x   = static_cast<double>(xs[0]);
+        auto const y   = static_cast<double>(xs[1]);
+        auto const t1  = (1.5 - x + x * y);
+        auto const t2  = (2.25 - x + x * y * y);
+        auto const t3  = (2.625 - x + x * y * y * y);
+        auto const f_x = t1 * t1 + t2 * t2 + t3 * t3;
+        gs[0] =
+            static_cast<float>(2.0 * t1 * (y - 1.0) + 2.0 * t2 * (y * y - 1.0)
+                               + 2.0 * t3 * (y * y * y - 1.0));
+        gs[1] = static_cast<float>(2.0 * t1 * x + 4.0 * t2 * x * y
+                                   + 6.0 * t3 * x * y * y);
+        return f_x;
+    };
+    {
+        for (auto& x0 : std::vector<std::array<float, 2>>{
+                 {2.5f, -1.0f}, {8.1f, 1.0f}, {5.0f, 5.0f}, {1.01f, 0.5001f}}) {
+            ::LBFGS_NAMESPACE::lbfgs_param_t params;
+            auto const                       r =
+                ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);
+            REQUIRE(r.status == ::LBFGS_NAMESPACE::status_t::success);
+            REQUIRE(r.func == Approx(0).margin(1.0e-10));
+            // REQUIRE(r.num_iter <= 2);
+            REQUIRE(x0[0] == Approx(3.0f));
+            REQUIRE(x0[1] == Approx(0.5f));
+        }
+    }
+}
+
+#if 0 // FIX ME!
+TEST_CASE("Goldstein-Price function", "[lbfgs]")
+{
+    auto const value_and_gradient = [](auto const xs, auto const gs) {
+        static_assert(std::is_same_v<std::remove_const_t<decltype(xs)>,
+                                     gsl::span<float const>>);
+        static_assert(std::is_same_v<std::remove_const_t<decltype(gs)>,
+                                     gsl::span<float>>);
+        LBFGS_ASSERT(xs.size() == 2, LBFGS_BUG_MESSAGE);
+        auto const x  = static_cast<double>(xs[0]);
+        auto const y  = static_cast<double>(xs[1]);
+        auto const t1 = (x + y + 1.0);
+        auto const t2 = (19.0 - 14.0 * x + 3.0 * x * x - 14.0 * y + 6.0 * x * y
+                         + 3.0 * y * y);
+        auto const t3 = (2.0 * x - 3.0 * y);
+        auto const t4 = 18.0 - 32.0 * x + 12.0 * x * x + 48.0 * y - 36.0 * x * y
+                        + 27.0 * y * y;
+        auto const f_x = (1.0 + t1 * t1 * t2) * (30.0 + t3 * t3 * t4);
+        gs[0]          = static_cast<float>(
+            (2.0 * t1 * t2 + t1 * t2 * (6.0 * x + 6.0 * y - 14.0))
+                * (30 + t3 * t3 * t4)
+            + (1.0 + t1 * t1 * t2)
+                  * (4.0 * t3 * t4 + t3 * t3 * (24.0 * x - 36.0 * y - 32.0)));
+        gs[1] = static_cast<float>(
+            (2.0 * t1 * t2 + t1 * t1 * (6.0 * x + 6.0 * y - 14.0))
+                * (30 + t3 * t3 * t4)
+            + (1 + t1 * t1 * t2)
+                  * (-6.0 * t3 * t4 + t3 * t3 * (-36.0 * x + 54.0 * y + 48.0)));
+        LBFGS_TRACE("f(%e, %e) = %e, df/dx = [%e, %e]\n",
+                    static_cast<double>(xs[0]), static_cast<double>(xs[1]), f_x,
+                    static_cast<double>(gs[0]), static_cast<double>(gs[1]));
+        return f_x;
+    };
+    {
+        for (auto& x0 : std::vector<std::array<float, 2>>{{2.5f, -2.0f}}) {
+            ::LBFGS_NAMESPACE::lbfgs_param_t params;
+            auto const                       r =
+                ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);
+            REQUIRE(r.status == ::LBFGS_NAMESPACE::status_t::success);
+            REQUIRE(r.func == Approx(3).margin(1.0e-10));
+            // REQUIRE(r.num_iter <= 2);
+            REQUIRE(x0[0] == Approx(0.0f));
+            REQUIRE(x0[1] == Approx(-1.0f));
+        }
+    }
+}
+#endif
