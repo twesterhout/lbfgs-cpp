@@ -106,7 +106,7 @@
                 __FILE__, __LINE__, __VA_ARGS__);                              \
         } while (false)
 #else
-#    define LBFGS_TRACE(fmt, ...) static_cast<void>(0);
+#    define LBFGS_TRACE(fmt, ...) static_cast<void>(0)
 #endif
 
 /// \cond
@@ -132,33 +132,6 @@
 #endif
 /// \endcond
 
-LBFGS_NAMESPACE_BEGIN
-namespace detail {
-/// \brief Terminated the program with a pretty message.
-///
-/// This function is called whenever an assertion fails.
-[[noreturn]] auto assert_fail(char const* expr, char const* file, unsigned line,
-                              char const* function, char const* msg) noexcept
-    -> void;
-} // namespace detail
-LBFGS_NAMESPACE_END
-
-namespace gsl {
-/// \brief Custom error handler for GSL contract violations.
-///
-/// We simply call #assert_fail().
-///
-/// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
-/// can use their own custom error handling functions.
-[[noreturn]] inline auto
-fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
-                         int const line) noexcept -> void
-{
-    ::LBFGS_NAMESPACE::detail::assert_fail(
-        expr, file, static_cast<unsigned>(line), "", msg);
-}
-} // namespace gsl
-
 #if !defined(LBFGS_DOXYGEN_IN_HOUSE) && defined(LBFGS_DEBUG)
 #    define LBFGS_ASSERT(cond, msg)                                            \
         (LBFGS_LIKELY(cond)                                                    \
@@ -175,4 +148,63 @@ fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
 #    define LBFGS_ASSERT(cond, msg) static_cast<void>(0)
 #endif
 
-#define LBFGS_USE_BLAS
+LBFGS_NAMESPACE_BEGIN
+/// Return codes used by LBFGS++ library
+enum class status_t {
+    success = 0,
+    out_of_memory,
+    invalid_storage_size,
+    invalid_epsilon,
+    invalid_delta,
+    too_many_iterations,
+    invalid_argument,
+    rounding_errors_prevent_progress,
+    maximum_step_reached,
+    minimum_step_reached,
+    too_many_function_evaluations,
+    interval_too_small,
+    invalid_interval_tolerance,
+    invalid_function_tolerance,
+    invalid_gradient_tolerance,
+    invalid_step_bounds,
+};
+
+namespace detail {
+/// \brief Terminated the program with a pretty message.
+///
+/// This function is called whenever an assertion fails.
+[[noreturn]] auto assert_fail(char const* expr, char const* file, unsigned line,
+                              char const* function, char const* msg) noexcept
+    -> void;
+} // namespace detail
+LBFGS_NAMESPACE_END
+
+#if defined(LBFGS_USE_GSL_LITE)
+
+#    include <cstdlib> // std::abort
+
+namespace gsl {
+/// \brief Custom error handler for GSL contract violations.
+///
+/// We simply call #assert_fail().
+///
+/// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
+/// can use their own custom error handling functions.
+[[noreturn]] inline constexpr auto
+fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
+                         int const line) -> void
+{
+    // This is a dummy if which will always evaluate to true. We need it since
+    // fail_fast_assert_handler in gsl-lite is marked constexpr and out
+    // assert_fail is not.
+    if (line != -2147483648) {
+        ::LBFGS_NAMESPACE::detail::assert_fail(
+            expr, file, static_cast<unsigned>(line), "", msg);
+    }
+    // This call is needed, because we mark the function [[noreturn]] and the
+    // compilers don't know that line numbers can't be negative.
+    std::abort();
+}
+} // namespace gsl
+
+#endif // LBFGS_USE_GSL_LITE

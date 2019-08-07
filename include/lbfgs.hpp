@@ -1,3 +1,30 @@
+// Copyright (c) 2019, Tom Westerhout
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
@@ -108,6 +135,8 @@ auto dot(gsl::span<float const> a, gsl::span<float const> b) noexcept -> double;
 auto nrm2(gsl::span<float const> x) noexcept -> double;
 auto axpy(float const a, gsl::span<float const> x, gsl::span<float> y) noexcept
     -> void;
+auto axpy(float const a, gsl::span<float const> x, gsl::span<float const> y,
+          gsl::span<float> out) noexcept -> void;
 auto scal(float const a, gsl::span<float> x) noexcept -> void;
 auto negative_copy(gsl::span<float const> const src,
                    gsl::span<float> const       dst) noexcept -> void;
@@ -421,7 +450,9 @@ struct line_search_runner_fn {
     {
         auto const func_0 = _state.current.value;
         auto const grad_0 = detail::dot(_state.direction, _state.current.grad);
-        LBFGS_TRACE("f(x_0) = %f, f'(x_0) = %f\n", func_0, grad_0);
+        LBFGS_TRACE("<line_search_runner::operator()>\n"
+                    "f(x_0) = %.10e, f'(x_0) = %.10e\n",
+                    func_0, grad_0);
         auto wrapper = wrapper_t<Function&>{
             value_and_gradient, _state.current.x, _state.current.grad,
             _state.previous.x, _state.direction};
@@ -429,8 +460,9 @@ struct line_search_runner_fn {
             line_search(wrapper, _params.at_zero(func_0, grad_0), step_0);
         _state.current.value = result.func;
         if (!result.cached) { wrapper(result.step, std::false_type{}); }
-        LBFGS_TRACE("f(x)=%f, f'(x)=%f\n", _state.current.value,
-                    static_cast<double>(result.grad));
+        LBFGS_TRACE("</line_search_runner::operator()>\n"
+                    "f(x)=%.10e, f'(x)=%.10e\n",
+                    _state.current.value, static_cast<double>(result.grad));
         return result.status;
     }
 
@@ -439,20 +471,47 @@ struct line_search_runner_fn {
     ls_param_t     _params;
 };
 
+/// \brief Checks whether we have reached a local minimum.
+///
+/// We perform the following check: `‖∇f‖₂ < ε·max(‖x‖₂, 1)` where
+/// `ε` is #tcm::lbfgs::lbfgs_param_t::epsilon.
 struct gradient_small_enough_fn {
     lbfgs_state_t const& state;
     lbfgs_param_t const& params;
 
-    /*constexpr*/ auto operator()(double const g_norm) const noexcept -> bool
+    /*constexpr*/ auto operator()(double const g_norm) const noexcept
+        -> std::pair<bool, double>
     {
         auto const x_norm = detail::nrm2(state.current.x);
-        return g_norm < params.epsilon * std::max(x_norm, 1.0);
+        auto const result = g_norm < params.epsilon * std::max(x_norm, 1.0);
+        LBFGS_TRACE("is gradient small? %.10e < %.10e * %.10e? -> %i\n", g_norm,
+                    params.epsilon, std::max(x_norm, 1.0), result);
+        return {result, x_norm};
     }
 
-    /*constexpr*/ auto operator()() const noexcept -> bool
+    /*constexpr*/ auto operator()() const noexcept -> std::pair<bool, double>
     {
         auto const g_norm = detail::nrm2(state.current.grad);
         return (*this)(g_norm);
+    }
+};
+
+struct search_direction_too_small_fn {
+    lbfgs_state_t const& state;
+    lbfgs_param_t const& params;
+
+    /*constexpr*/ auto operator()(double const x_norm) const noexcept -> bool
+    {
+        auto const direction_norm = detail::nrm2(state.direction);
+        auto const result =
+            direction_norm
+            < static_cast<double>(std::numeric_limits<float>::epsilon())
+                  * std::max(x_norm, 1.0);
+        LBFGS_TRACE("is direction small? %.10e < %.10e * %.10e? -> %i\n",
+                    direction_norm,
+                    static_cast<double>(std::numeric_limits<float>::epsilon()),
+                    std::max(x_norm, 1.0), result);
+        return result;
     }
 };
 
@@ -479,12 +538,13 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
     state.current.value = value_and_gradient(
         gsl::span<float const>{state.current.x}, state.current.grad);
 
-    gradient_small_enough_fn gradient_is_small{state, params};
-    too_little_progress_fn   too_little_progress{state, params};
-    line_search_runner_fn    do_line_search{state, params};
+    gradient_small_enough_fn      gradient_is_small{state, params};
+    search_direction_too_small_fn direction_is_small{state, params};
+    too_little_progress_fn        too_little_progress{state, params};
+    line_search_runner_fn         do_line_search{state, params};
 
     auto const grad_0_norm = detail::nrm2(state.current.grad);
-    if (gradient_is_small(grad_0_norm)) {
+    if (auto [r, _] = gradient_is_small(grad_0_norm); r) {
         return {status_t::success, 0, state.current.value};
     }
     auto step = 1.0 / grad_0_norm;
@@ -497,7 +557,8 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
             status != status_t::success) {
             return {status, iteration, state.current.value};
         }
-        if (gradient_is_small()) {
+        auto [done, x_norm] = gradient_is_small();
+        if (done) {
             return {status_t::success, iteration, state.current.value};
         }
         if (too_little_progress()) {
@@ -513,6 +574,9 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
                                        state.current.grad, state.previous.grad);
         detail::negative_copy(state.current.grad, state.direction);
         apply_inverse_hessian(state.history, gamma, state.direction);
+        if (direction_is_small(x_norm)) {
+            return {status_t::success, iteration, state.current.value};
+        }
 
         // From now on, always start with αₜ = 1
         step = 1.0;
@@ -547,4 +611,13 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
     return result;
 }
 
+/// #status_t can be used with `std::error_code`.
+auto make_error_code(status_t) noexcept -> std::error_code;
+
 LBFGS_NAMESPACE_END
+
+namespace std {
+/// Make `status_t` act as an error code.
+template <>
+struct is_error_code_enum<::LBFGS_NAMESPACE::status_t> : false_type {};
+} // namespace std

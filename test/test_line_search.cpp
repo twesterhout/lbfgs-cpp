@@ -51,6 +51,79 @@ TEST_CASE("Cubic minimiser", "[cubic]")
             == approx(1.459167));
 }
 
+#define TRY_WEIRD_PARAM(name, code, ...)                                       \
+    for (auto const weird_##name : __VA_ARGS__) {                              \
+        ::LBFGS_NAMESPACE::ls_param_t params;                                  \
+        params.at_zero(1.0, -1.0);                                             \
+        params.name = weird_##name;                                            \
+        auto const [status, alpha, func, grad, num_f_evals, cache] =           \
+            ::LBFGS_NAMESPACE::line_search(dummy_value_and_gradient, params,   \
+                                           /*alpha_0=*/1.0);                   \
+        REQUIRE(status == code);                                               \
+        REQUIRE(alpha == 0.0);                                                 \
+        REQUIRE((std::isnan(func) && std::isnan(params.func_0)                 \
+                 || func == params.func_0));                                   \
+        REQUIRE((std::isnan(grad) && std::isnan(params.grad_0)                 \
+                 || grad == params.grad_0));                                   \
+        REQUIRE(num_f_evals == 0);                                             \
+        REQUIRE(cache == false);                                               \
+    }                                                                          \
+    do {                                                                       \
+    } while (false)
+
+TEST_CASE("Weird input", "[line_search]")
+{
+    auto       counter                  = size_t{0};
+    auto const dummy_value_and_gradient = [&counter](auto /*unused*/) {
+        ++counter;
+        return std::make_pair(std::numeric_limits<double>::quiet_NaN(),
+                              std::numeric_limits<double>::quiet_NaN());
+    };
+    TRY_WEIRD_PARAM(x_tol,
+                    ::LBFGS_NAMESPACE::status_t::invalid_interval_tolerance,
+                    {-1.0, -std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(f_tol,
+                    ::LBFGS_NAMESPACE::status_t::invalid_function_tolerance,
+                    {-1e-10, -1.0, -std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(g_tol,
+                    ::LBFGS_NAMESPACE::status_t::invalid_gradient_tolerance,
+                    {-1e-10, -1.0, -std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(step_min, ::LBFGS_NAMESPACE::status_t::invalid_step_bounds,
+                    {-1e-10, 0.0, 1e100,
+                     std::numeric_limits<double>::infinity(),
+                     std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(
+        step_max, ::LBFGS_NAMESPACE::status_t::invalid_step_bounds,
+        {-1e-10, 0.0, 1e-100, std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(func_0, ::LBFGS_NAMESPACE::status_t::invalid_argument,
+                    {std::numeric_limits<double>::quiet_NaN()});
+    TRY_WEIRD_PARAM(grad_0, ::LBFGS_NAMESPACE::status_t::invalid_argument,
+                    {std::numeric_limits<double>::quiet_NaN(), 1.0,
+                     std::numeric_limits<double>::infinity()});
+
+    // Try negative initial step size
+    {
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        auto const [status, alpha, func, grad, num_f_evals, cache] =
+            ::LBFGS_NAMESPACE::line_search(dummy_value_and_gradient,
+                                           params.at_zero(1.0, -1.0),
+                                           /*alpha_0=*/-0.5);
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::invalid_argument);
+        REQUIRE(alpha == 0.0);
+        REQUIRE((std::isnan(func) && std::isnan(params.func_0)
+                 || func == params.func_0));
+        REQUIRE((std::isnan(grad) && std::isnan(params.grad_0)
+                 || grad == params.grad_0));
+        REQUIRE(num_f_evals == 0);
+        REQUIRE(cache == false);
+    }
+}
+
+#undef TRY_WEIRD_PARAM
+
 TEST_CASE("Function (5.1)", "[line_search]")
 {
     auto const value_and_gradient = [](auto const x) {
@@ -194,6 +267,45 @@ TEST_CASE("Function (5.1)", "[line_search]")
         REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
         REQUIRE(alpha == Approx(1.414213562).epsilon(1e-4));
         REQUIRE(num_f_evals == 10);
+    }
+
+    // Small interval
+    {
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol = 1e-3;
+        params.g_tol = 1e-1;
+        params.x_tol = 1.0; // !!!
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/1000.0);
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::interval_too_small);
+    }
+
+    // Require too big a step
+    {
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol    = 1e-3;
+        params.g_tol    = 1e-1;
+        params.step_min = 2.0; // !!!
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::minimum_step_reached);
+    }
+
+    // Require too small a step
+    {
+        ::LBFGS_NAMESPACE::ls_param_t params;
+        params.f_tol    = 1e-3;
+        params.g_tol    = 1e-1;
+        params.step_max = 0.5; // !!!
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
+            ::LBFGS_NAMESPACE::line_search(value_and_gradient,
+                                           params.at_zero(func_0, grad_0),
+                                           /*alpha_0=*/0.001);
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::maximum_step_reached);
     }
 }
 

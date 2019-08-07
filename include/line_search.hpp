@@ -1,11 +1,37 @@
+// Copyright (c) 2019, Tom Westerhout
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
 #include "config.hpp"
 
-#include <cmath>        // std::sqrt
-#include <system_error> // std::is_error_code
-#include <tuple>        // std::tie
+#include <cmath> // std::sqrt
+#include <tuple> // std::tie
 #include <type_traits>
 #include <utility>
 
@@ -16,26 +42,6 @@
 LBFGS_NAMESPACE_BEGIN
 
 // ========================== Public Interface ============================= {{{
-
-/// Return codes used by LBFGS++ library
-enum class status_t {
-    success = 0,
-    out_of_memory,
-    invalid_storage_size,
-    invalid_epsilon,
-    invalid_delta,
-    too_many_iterations,
-    invalid_argument,
-    rounding_errors_prevent_progress,
-    maximum_step_reached,
-    minimum_step_reached,
-    too_many_function_evaluations,
-    interval_too_small,
-    invalid_interval_tolerance,
-    invalid_function_tolerance,
-    invalid_gradient_tolerance,
-    invalid_step_bounds,
-};
 
 /// Parameters for the More-Thuente line search algorithm.
 struct ls_param_t {
@@ -131,19 +137,6 @@ line_search(Function&& value_and_gradient, ls_param_t const& params,
     -> ls_result_t;
 
 // ========================== Public Interface ============================= }}}
-
-/// #status_t can be used with `std::error_code`.
-auto make_error_code(status_t) noexcept -> std::error_code;
-
-LBFGS_NAMESPACE_END
-
-namespace std {
-/// Make `status_t` act as an error code.
-template <>
-struct is_error_code_enum<::LBFGS_NAMESPACE::status_t> : false_type {};
-} // namespace std
-
-LBFGS_NAMESPACE_BEGIN
 
 namespace detail {
 
@@ -466,7 +459,8 @@ struct interval_too_small_fn {
         if (state.bracketed
             && (state.interval.length()
                 <= params.x_tol * state.interval.max())) {
-            LBFGS_TRACE("interval too small: %f <= %f", state.interval.length(),
+            LBFGS_TRACE("interval too small: %.10e <= %.10e",
+                        state.interval.length(),
                         params.x_tol * state.interval.max());
             // NOTE: We return αₓ rather than αₜ!
             result = {status_t::interval_too_small,
@@ -528,7 +522,7 @@ struct reached_max_step_fn {
         auto const func_test = params.func_0 + state.t.alpha * grad_test;
         if (state.t.alpha == params.step_max && state.t.func <= func_test
             && state.t.grad <= grad_test) {
-            LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%f <= %f\n", state.t.grad,
+            LBFGS_TRACE("reached αₘₐₓ: ф'(αₜ)=%.10e <= %.10e\n", state.t.grad,
                         grad_test);
             result = {status_t::maximum_step_reached,
                       state.t.alpha,
@@ -559,7 +553,7 @@ struct reached_min_step_fn {
         auto const func_test = params.func_0 + state.t.alpha * grad_test;
         if (state.t.alpha == params.step_min
             && (state.t.func > func_test || state.t.grad >= grad_test)) {
-            LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%f >= %f\n", state.t.grad,
+            LBFGS_TRACE("reached αₘᵢₙ: ф'(αₜ)=%.10e >= %.10e\n", state.t.grad,
                         grad_test);
             result = {status_t::minimum_step_reached,
                       state.t.alpha,
@@ -586,15 +580,16 @@ struct strong_wolfe_fn {
         // precondition for the whole algorithm.
         auto const grad_test = params.f_tol * params.grad_0;
         auto const func_test = params.func_0 + state.t.alpha * grad_test;
-        LBFGS_TRACE("strong_wolfe_fn: f(x)=%f, func_test=%f, |grad|=%f, "
-                    "g_tol=%f, -grad_0=%f\n",
-                    state.t.func, func_test, std::abs(state.t.grad),
-                    params.g_tol, -params.grad_0);
+        LBFGS_TRACE(
+            "strong_wolfe_fn: f(x)=%.10e, func_test=%.10e, |grad|=%.10e, "
+            "g_tol=%.10e, -grad_0=%.10e\n",
+            state.t.func, func_test, std::abs(state.t.grad), params.g_tol,
+            -params.grad_0);
         if ((state.t.func <= func_test)
             && (std::abs(state.t.grad) <= params.g_tol * (-params.grad_0))) {
             LBFGS_TRACE("Strong Wolfe conditions satisfied:\n"
-                        "    sufficient decrease: %f <= %f\n"
-                        "    curvature condition: %f <= %f\n"
+                        "    sufficient decrease: %.10e <= %.10e\n"
+                        "    curvature condition: %.10e <= %.10e\n"
                         "    %u function evaluations\n",
                         state.t.func, func_test, std::abs(state.t.grad),
                         params.g_tol * (-params.grad_0), state.num_f_evals);
@@ -742,7 +737,8 @@ template <class Function> struct evaluate_fn {
         std::tie(state.t.func, state.t.grad) =
             value_and_gradient(state.t.alpha);
         ++state.num_f_evals;
-        LBFGS_TRACE("another function evaluation: αₜ=%f, ф(αₜ)=%f, ф'(αₜ)=%f\n",
+        LBFGS_TRACE("another function evaluation: αₜ=%.10e, ф(αₜ)=%.10e, "
+                    "ф'(αₜ)=%.10e\n",
                     state.t.alpha, state.t.func, state.t.grad);
     }
 };
@@ -796,7 +792,7 @@ auto line_search_impl(
 
     for (;;) {
         state.t.alpha = clamp(state.t.alpha, params.step_min, params.step_max);
-        LBFGS_TRACE("proposed αₜ=%f, I = [%f, %f]\n", state.t.alpha,
+        LBFGS_TRACE("proposed αₜ=%.10e, I = [%.10e, %.10e]\n", state.t.alpha,
                     state.interval.min(), state.interval.max());
         if (auto r = interval_too_small(); r) { return *r; }
         if (auto r = too_many_f_evals(); r) { return *r; }
@@ -821,13 +817,13 @@ auto line_search_impl(
         }
         if (first_stage && (state.t.func <= state.x.func)
             && (state.t.func > func_test)) {
-            LBFGS_TRACE("%s", "using modified updating scheme\n");
+            LBFGS_TRACE("%s", "using modified updating scheme...\n");
             with_modified_function_t context{state,
                                              params.f_tol * params.grad_0};
             update_trial_value_and_interval(state);
         }
         else {
-            LBFGS_TRACE("%s", "using normal updating scheme\n");
+            LBFGS_TRACE("%s", "using normal updating scheme...\n");
             update_trial_value_and_interval(state);
         }
         ensure_shrinking();

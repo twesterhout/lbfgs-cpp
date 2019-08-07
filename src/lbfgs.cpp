@@ -297,6 +297,20 @@ LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
     cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
 }
 
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float const> y, gsl::span<float> out) noexcept
+    -> void
+{
+    LBFGS_ASSERT(x.size() == y.size() && y.size() == out.size(),
+                 "incompatible dimensions");
+#if 1
+    std::memcpy(out.data(), y.data(), out.size());
+    axpy(a, x, out);
+#else
+
+#endif
+}
+
 LBFGS_EXPORT auto scal(float const a, gsl::span<float> x) noexcept -> void
 {
     LBFGS_ASSERT(
@@ -626,14 +640,14 @@ auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,
                   });
     // r <- H_k^0*q
     detail::scal(static_cast<float>(gamma), q);
-    printf("γ=%f\n", gamma);
+    LBFGS_TRACE("γ=%f\n", gamma);
     //for i = k − m, k − m + 1, . . . , k − 1
     std::for_each(begin, end, [q](auto& x) {
         // beta <- rho_i * y_i^T * r
         auto const beta = detail::dot(x.y, q) / x.s_dot_y;
         // r <- r + s_i * ( alpha_i - beta)
         detail::axpy(static_cast<float>(x.alpha - beta), x.s, q);
-        printf("β=%f\n", beta);
+        LBFGS_TRACE("β=%f\n", beta);
     });
     // stop with result "H_k*f_f'=q"
 }
