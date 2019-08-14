@@ -1,5 +1,5 @@
 ---
-Checks: '*,-fuchsia-trailing-return,-fuchsia-default-arguments'
+Checks: '*,-fuchsia-trailing-return,-fuchsia-default-arguments,-fuchsia-overloaded-operator,-readability-redundant-member-init,-fuchsia-default-arguments-calls,-google-runtime-references,-misc-non-private-member-variables-in-classes,-fuchsia-default-arguments-declarations,-llvm-header-guard,-hicpp-special-member-functions,-cppcoreguidelines-special-member-functions'
 WarningsAsErrors: '*'
 HeaderFilterRegex: ''
 AnalyzeTemporaryDtors: true
