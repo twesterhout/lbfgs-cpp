@@ -1,22 +1,57 @@
+// Copyright (c) 2019, Tom Westerhout
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// vim: foldenable foldmethod=marker
 #include "lbfgs.hpp"
+#if defined(LBFGS_USE_BLAS)
+#    include <cblas.h>
+#else
+#    include <immintrin.h>
+#endif
 
 LBFGS_NAMESPACE_BEGIN
 
+// ============================= Error codes =============================== {{{
 namespace { // anonymous namespace
 struct lbfgs_error_category : public std::error_category {
     constexpr lbfgs_error_category() noexcept = default;
 
     lbfgs_error_category(lbfgs_error_category const&) = delete;
     lbfgs_error_category(lbfgs_error_category&&)      = delete;
-    lbfgs_error_category& operator=(lbfgs_error_category const&) = delete;
-    lbfgs_error_category& operator=(lbfgs_error_category&&) = delete;
+    auto operator                =(lbfgs_error_category const&)
+        -> lbfgs_error_category& = delete;
+    auto operator=(lbfgs_error_category &&) -> lbfgs_error_category& = delete;
 
     ~lbfgs_error_category() override = default;
 
-    [[nodiscard]] auto name() const noexcept -> char const* override;
-    [[nodiscard]] auto message(int value) const -> std::string override;
-    static auto        instance() noexcept -> std::error_category const&;
+    [[nodiscard]] auto        name() const noexcept -> char const* override;
+    [[nodiscard]] auto        message(int value) const -> std::string override;
+    [[nodiscard]] static auto instance() noexcept -> std::error_category const&;
 };
 
 auto lbfgs_error_category::name() const noexcept -> char const*
@@ -78,6 +113,7 @@ LBFGS_EXPORT auto make_error_code(status_t const e) noexcept -> std::error_code
 {
     return {static_cast<int>(e), lbfgs_error_category::instance()};
 }
+// ============================= Error codes =============================== }}}
 
 namespace detail {
 
@@ -95,11 +131,12 @@ namespace detail {
     std::terminate();
 }
 
+// ============================= Line search =============================== {{{
 namespace {
     /// \brief Case 1 on p. 299 of [1].
     ///
-    /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the new
-    /// search interval `I⁺`.
+    /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the
+    ///         new search interval `I⁺`.
     inline auto case_1(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
@@ -113,16 +150,16 @@ namespace {
                                    < std::abs(quadratic - state.x.alpha)
                                ? cubic
                                : cubic + 0.5 * (quadratic - cubic);
-        LBFGS_TRACE("case_1: α_c=%f, α_q=%f -> α=%f\n", cubic, // NOLINT
-                    quadratic,                                 // NOLINT
-                    alpha);                                    // NOLINT
+        LBFGS_TRACE("case_1: α_c=%.5e, α_q=%.5e -> α=%.5e\n", cubic, // NOLINT
+                    quadratic,                                       // NOLINT
+                    alpha);                                          // NOLINT
         return {alpha, /*bracketed=*/true, /*bound=*/true};
     }
 
     /// \brief Case 2 on p. 299 of [1].
     ///
-    /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the new
-    /// search interval `I⁺`.
+    /// \return `(αₜ⁺, bracketed, bound)` where `αₜ⁺` is the trial value in the
+    ///         new search interval `I⁺`.
     inline auto case_2(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
@@ -138,8 +175,9 @@ namespace {
             std::abs(cubic - state.t.alpha) >= std::abs(secant - state.t.alpha)
                 ? cubic
                 : secant;
-        LBFGS_TRACE("case_2: α_c=%f, α_s=%f -> α=%f\n", cubic, secant, // NOLINT
-                    alpha);                                            // NOLINT
+        LBFGS_TRACE("case_2: α_c=%.5e, α_s=%.5e -> α=%.5e\n", cubic, // NOLINT
+                    secant,                                          // NOLINT
+                    alpha);                                          // NOLINT
         return {alpha, /*bracketed=*/true, /*bound=*/false};
     }
 
@@ -164,18 +202,20 @@ namespace {
             auto result = std::tuple{condition ? cubic : secant,
                                      /*bracketed=*/state.bracketed,
                                      /*bound=*/true};
-            LBFGS_TRACE( // NOLINT
-                "case_3 (true): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n", // NOLINT
-                state.x.alpha, state.t.alpha, cubic, secant, // NOLINT
-                std::get<0>(result));                        // NOLINT
+            LBFGS_TRACE(                                        // NOLINT
+                "case_3 (true): α_l=%.5e, α_t=%.5e, α_c=%.5e, " // NOLINT
+                "α_s=%.5e -> α=%.5e\n",                         // NOLINT
+                state.x.alpha, state.t.alpha, cubic, secant,    // NOLINT
+                std::get<0>(result));                           // NOLINT
             return result;
         }
         auto result =
             std::tuple{secant, /*bracketed=*/state.bracketed, /*bound=*/true};
-        LBFGS_TRACE( // NOLINT
-            "case_3 (false): α_l=%f, α_t=%f, α_c=%f, α_s=%f -> α=%f\n", // NOLINT
-            state.x.alpha, state.t.alpha, cubic, secant, // NOLINT
-            std::get<0>(result));                        // NOLINT
+        LBFGS_TRACE(                                         // NOLINT
+            "case_3 (false): α_l=%.5e, α_t=%.5e, α_c=%.5e, " // NOLINT
+            "α_s=%.5e -> α=%.5e\n",                          // NOLINT
+            state.x.alpha, state.t.alpha, cubic, secant,     // NOLINT
+            std::get<0>(result));                            // NOLINT
         return result;
     }
 
@@ -248,8 +288,11 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
                                 state.bracketed};
 }
 } // namespace detail
+// ========================================================================= }}}
 
 namespace detail {
+// ================================= BLAS ================================== {{{
+#if defined(LBFGS_USE_BLAS)
 // A hacky way of determining the integral type BLAS uses for sizes and
 // increments: we pattern match on the signature of `cblas_sdot`.
 template <class T> struct get_blas_int_type;
@@ -277,38 +320,14 @@ LBFGS_EXPORT auto nrm2(gsl::span<float const> x) noexcept -> double
     LBFGS_ASSERT(
         x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
         "integer overflow");
-#if defined(LBFGS_CLANG)
-#    pragma clang diagnostic push
-#    pragma clang diagnostic ignored "-Wdouble-promotion"
-#endif
+#    if defined(LBFGS_CLANG)
+#        pragma clang diagnostic push
+#        pragma clang diagnostic ignored "-Wdouble-promotion"
+#    endif
     return cblas_snrm2(static_cast<blas_int>(x.size()), x.data(), 1);
-#if defined(LBFGS_CLANG)
-#    pragma clang diagnostic pop
-#endif
-}
-
-LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
-                       gsl::span<float> y) noexcept -> void
-{
-    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
-    LBFGS_ASSERT(
-        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
-        "integer overflow");
-    cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
-}
-
-LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
-                       gsl::span<float const> y, gsl::span<float> out) noexcept
-    -> void
-{
-    LBFGS_ASSERT(x.size() == y.size() && y.size() == out.size(),
-                 "incompatible dimensions");
-#if 1
-    std::memcpy(out.data(), y.data(), out.size());
-    axpy(a, x, out);
-#else
-
-#endif
+#    if defined(LBFGS_CLANG)
+#        pragma clang diagnostic pop
+#    endif
 }
 
 LBFGS_EXPORT auto scal(float const a, gsl::span<float> x) noexcept -> void
@@ -328,6 +347,356 @@ LBFGS_EXPORT auto negative_copy(gsl::span<float const> const src,
     }
 }
 
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float> y) noexcept -> void
+{
+    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<blas_int>::max()),
+        "integer overflow");
+    cblas_saxpy(static_cast<blas_int>(x.size()), a, x.data(), 1, y.data(), 1);
+}
+
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float const> y, gsl::span<float> out) noexcept
+    -> void
+{
+    LBFGS_ASSERT(x.size() == y.size() && y.size() == out.size(),
+                 "incompatible dimensions");
+    std::memcpy(out.data(), y.data(), out.size() * sizeof(float));
+    axpy(a, x, out);
+}
+
+#else
+
+namespace {
+    LBFGS_FORCEINLINE auto hsum(__m256d v) noexcept -> double
+    {
+        auto vlow    = _mm256_castpd256_pd128(v);
+        auto vhigh   = _mm256_extractf128_pd(v, 1);
+        vlow         = _mm_add_pd(vlow, vhigh);
+        auto undef   = _mm_undefined_ps();
+        auto shuftmp = _mm_movehl_ps(undef, _mm_castpd_ps(vlow));
+        auto shuf    = _mm_castps_pd(shuftmp);
+        return _mm_cvtsd_f64(_mm_add_sd(vlow, shuf));
+    }
+
+    /// Dot product of 32 floats using `double`s for accumulation.
+    LBFGS_FORCEINLINE auto dot_kernel_32(float const* LBFGS_RESTRICT x,
+                                         float const* LBFGS_RESTRICT y) noexcept
+        -> __m256d
+    {
+        __m256  x0, x1, x2, x3;
+        __m256  y0, y1, y2, y3;
+        __m256d a0, a1, a2, a3, a4, a5, a6, a7;
+        __m256d b0, b1, b2, b3, b4, b5, b6, b7;
+
+        x0 = _mm256_load_ps(x);
+        x1 = _mm256_load_ps(x + 8);
+        x2 = _mm256_load_ps(x + 16);
+        x3 = _mm256_load_ps(x + 24);
+        y0 = _mm256_load_ps(y);
+        y1 = _mm256_load_ps(y + 8);
+        y2 = _mm256_load_ps(y + 16);
+        y3 = _mm256_load_ps(y + 24);
+
+        a1 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 1));
+        a0 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 0));
+        a3 = _mm256_cvtps_pd(_mm256_extractf128_ps(x1, 1));
+        a2 = _mm256_cvtps_pd(_mm256_extractf128_ps(x1, 0));
+        a5 = _mm256_cvtps_pd(_mm256_extractf128_ps(x2, 1));
+        a4 = _mm256_cvtps_pd(_mm256_extractf128_ps(x2, 0));
+        a7 = _mm256_cvtps_pd(_mm256_extractf128_ps(x3, 1));
+        a6 = _mm256_cvtps_pd(_mm256_extractf128_ps(x3, 0));
+
+        b1 = _mm256_cvtps_pd(_mm256_extractf128_ps(y0, 1));
+        b0 = _mm256_cvtps_pd(_mm256_extractf128_ps(y0, 0));
+        b3 = _mm256_cvtps_pd(_mm256_extractf128_ps(y1, 1));
+        b2 = _mm256_cvtps_pd(_mm256_extractf128_ps(y1, 0));
+        b5 = _mm256_cvtps_pd(_mm256_extractf128_ps(y2, 1));
+        b4 = _mm256_cvtps_pd(_mm256_extractf128_ps(y2, 0));
+        b7 = _mm256_cvtps_pd(_mm256_extractf128_ps(y3, 1));
+        b6 = _mm256_cvtps_pd(_mm256_extractf128_ps(y3, 0));
+
+        a0 = _mm256_mul_pd(a0, b0);
+        a1 = _mm256_mul_pd(a1, b1);
+        a2 = _mm256_mul_pd(a2, b2);
+        a3 = _mm256_mul_pd(a3, b3);
+        a4 = _mm256_mul_pd(a4, b4);
+        a5 = _mm256_mul_pd(a5, b5);
+        a6 = _mm256_mul_pd(a6, b6);
+        a7 = _mm256_mul_pd(a7, b7);
+
+        a0 = _mm256_add_pd(a0, a1);
+        a2 = _mm256_add_pd(a2, a3);
+        a4 = _mm256_add_pd(a4, a5);
+        a6 = _mm256_add_pd(a6, a7);
+
+        a0 = _mm256_add_pd(a0, a2);
+        a4 = _mm256_add_pd(a4, a6);
+
+        return _mm256_add_pd(a0, a4);
+    }
+
+    /// Dot product of 8 floats using `double`s for accumulation.
+    LBFGS_FORCEINLINE auto dot_kernel_8(float const* LBFGS_RESTRICT x,
+                                        float const* LBFGS_RESTRICT y) noexcept
+        -> __m256d
+    {
+        __m256  x0;
+        __m256  y0;
+        __m256d a0, a1;
+        __m256d b0, b1;
+
+        x0 = _mm256_load_ps(x);
+        y0 = _mm256_load_ps(y);
+
+        a1 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 1));
+        a0 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 0));
+
+        b1 = _mm256_cvtps_pd(_mm256_extractf128_ps(y0, 1));
+        b0 = _mm256_cvtps_pd(_mm256_extractf128_ps(y0, 0));
+
+        a0 = _mm256_mul_pd(a0, b0);
+        a1 = _mm256_mul_pd(a1, b1);
+
+        return _mm256_add_pd(a0, a1);
+    }
+} // namespace
+
+LBFGS_EXPORT auto dot(gsl::span<float const> a,
+                      gsl::span<float const> b) noexcept -> double
+{
+    LBFGS_ASSERT(a.size() == b.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        a.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(a.data()) % 64UL == 0,
+                 "a must be aligned to 64-byte boundary");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(b.data()) % 64UL == 0,
+                 "b must be aligned to 64-byte boundary");
+    auto                 n   = static_cast<int64_t>(a.size());
+    auto                 sum = _mm256_set1_pd(0.0);
+    auto* LBFGS_RESTRICT x   = a.data();
+    auto* LBFGS_RESTRICT y   = b.data();
+    for (; n >= 32; n -= 32, x += 32, y += 32) {
+        sum = _mm256_add_pd(sum, dot_kernel_32(x, y));
+    }
+    for (; n >= 8; n -= 8, x += 8, y += 8) {
+        sum = _mm256_add_pd(sum, dot_kernel_8(x, y));
+    }
+    auto total = hsum(sum);
+    for (; n > 0; --n, ++x, ++y) {
+        total += static_cast<double>(*x) * static_cast<double>(*y);
+    }
+    return total;
+}
+
+namespace {
+    LBFGS_FORCEINLINE auto nrm2_kernel_32(float const* x) noexcept -> __m256d
+    {
+        __m256  x0, x1, x2, x3;
+        __m256d a0, a1, a2, a3, a4, a5, a6, a7;
+
+        x0 = _mm256_load_ps(x);
+        x1 = _mm256_load_ps(x + 8);
+        x2 = _mm256_load_ps(x + 16);
+        x3 = _mm256_load_ps(x + 24);
+
+        a1 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 1));
+        a0 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 0));
+        a3 = _mm256_cvtps_pd(_mm256_extractf128_ps(x1, 1));
+        a2 = _mm256_cvtps_pd(_mm256_extractf128_ps(x1, 0));
+        a5 = _mm256_cvtps_pd(_mm256_extractf128_ps(x2, 1));
+        a4 = _mm256_cvtps_pd(_mm256_extractf128_ps(x2, 0));
+        a7 = _mm256_cvtps_pd(_mm256_extractf128_ps(x3, 1));
+        a6 = _mm256_cvtps_pd(_mm256_extractf128_ps(x3, 0));
+
+        a0 = _mm256_mul_pd(a0, a0);
+        a1 = _mm256_mul_pd(a1, a1);
+        a2 = _mm256_mul_pd(a2, a2);
+        a3 = _mm256_mul_pd(a3, a3);
+        a4 = _mm256_mul_pd(a4, a4);
+        a5 = _mm256_mul_pd(a5, a5);
+        a6 = _mm256_mul_pd(a6, a6);
+        a7 = _mm256_mul_pd(a7, a7);
+
+        a0 = _mm256_add_pd(a0, a1);
+        a2 = _mm256_add_pd(a2, a3);
+        a4 = _mm256_add_pd(a4, a5);
+        a6 = _mm256_add_pd(a6, a7);
+
+        a0 = _mm256_add_pd(a0, a2);
+        a4 = _mm256_add_pd(a4, a6);
+
+        return _mm256_add_pd(a0, a4);
+    }
+
+    LBFGS_FORCEINLINE auto nrm2_kernel_8(float const* x) noexcept -> __m256d
+    {
+        __m256  x0;
+        __m256d a0, a1;
+
+        x0 = _mm256_load_ps(x);
+
+        a1 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 1));
+        a0 = _mm256_cvtps_pd(_mm256_extractf128_ps(x0, 0));
+
+        a0 = _mm256_mul_pd(a0, a0);
+        a1 = _mm256_mul_pd(a1, a1);
+
+        return _mm256_add_pd(a0, a1);
+    }
+} // namespace
+
+LBFGS_EXPORT auto nrm2(gsl::span<float const> a) noexcept -> double
+{
+    LBFGS_ASSERT(
+        a.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(a.data()) % 64UL == 0,
+                 "x must be aligned to 64-byte boundary");
+    auto  n   = static_cast<int64_t>(a.size());
+    auto  sum = _mm256_set1_pd(0.0);
+    auto* x   = a.data();
+    for (; n >= 32; n -= 32, x += 32) {
+        sum = _mm256_add_pd(sum, nrm2_kernel_32(x));
+    }
+    for (; n >= 8; n -= 8, x += 8) {
+        sum = _mm256_add_pd(sum, nrm2_kernel_8(x));
+    }
+    auto total = hsum(sum);
+    for (; n > 0; --n, ++x) {
+        auto t = static_cast<double>(*x);
+        total += t * t;
+    }
+    return std::sqrt(total);
+}
+
+LBFGS_EXPORT auto scal(float const a, gsl::span<float> const x) noexcept -> void
+{
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(x.data()) % 64UL == 0,
+                 "x must be aligned to 64-byte boundary");
+    auto       n   = static_cast<int64_t>(x.size());
+    auto const a_v = _mm256_set1_ps(a);
+    auto*      p   = x.data();
+    for (; n >= 16; n -= 16, p += 16) {
+        _mm256_store_ps(p, _mm256_mul_ps(a_v, _mm256_load_ps(p)));
+        _mm256_store_ps(p + 8, _mm256_mul_ps(a_v, _mm256_load_ps(p + 8)));
+    }
+    for (; n > 0; --n, ++p) {
+        (*p) *= a;
+    }
+}
+
+LBFGS_EXPORT auto negative_copy(gsl::span<float const> const src,
+                                gsl::span<float> const dst) noexcept -> void
+{
+    LBFGS_ASSERT(src.size() == dst.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        src.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(src.data()) % 64UL == 0,
+                 "src must be aligned to 64-byte boundary");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(dst.data()) % 64UL == 0,
+                 "dst must be aligned to 64-byte boundary");
+    auto                 n    = static_cast<int64_t>(src.size());
+    auto const           zero = _mm256_set1_ps(0.0f);
+    auto* LBFGS_RESTRICT s    = src.data();
+    auto* LBFGS_RESTRICT d    = dst.data();
+    for (; n >= 8; n -= 8, s += 8, d += 8) {
+        _mm256_store_ps(d, _mm256_sub_ps(zero, _mm256_load_ps(s)));
+    }
+    for (; n > 0; --n, ++s, ++d) {
+        (*d) = -(*s);
+    }
+}
+
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float> y) noexcept -> void
+{
+    LBFGS_ASSERT(x.size() == y.size(), "incompatible dimensions");
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(x.data()) % 64UL == 0,
+                 "x must be aligned to 64-byte boundary");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(y.data()) % 64UL == 0,
+                 "y must be aligned to 64-byte boundary");
+    auto                 n     = static_cast<int64_t>(x.size());
+    auto const           a_v   = _mm256_set1_ps(a);
+    auto* LBFGS_RESTRICT x_ptr = x.data();
+    auto* LBFGS_RESTRICT y_ptr = y.data();
+    for (; n >= 16; n -= 16, x_ptr += 16, y_ptr += 16) {
+        _mm256_store_ps(
+            y_ptr, _mm256_add_ps(_mm256_load_ps(y_ptr),
+                                 _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr))));
+        _mm256_store_ps(
+            y_ptr + 8,
+            _mm256_add_ps(_mm256_load_ps(y_ptr + 8),
+                          _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr + 8))));
+    }
+    if (n >= 8) {
+        _mm256_store_ps(
+            y_ptr, _mm256_add_ps(_mm256_load_ps(y_ptr),
+                                 _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr))));
+        n -= 8;
+        x_ptr += 8;
+        y_ptr += 8;
+    }
+    for (; n > 0; --n, ++x_ptr, ++y_ptr) {
+        (*y_ptr) += a * (*x_ptr);
+    }
+}
+
+LBFGS_EXPORT auto axpy(float const a, gsl::span<float const> x,
+                       gsl::span<float const> y, gsl::span<float> out) noexcept
+    -> void
+{
+    LBFGS_ASSERT(x.size() == y.size() && x.size() == out.size(),
+                 "incompatible dimensions");
+    LBFGS_ASSERT(
+        x.size() <= static_cast<size_t>(std::numeric_limits<int64_t>::max()),
+        "integer overflow");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(x.data()) % 64UL == 0,
+                 "x must be aligned to 64-byte boundary");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(y.data()) % 64UL == 0,
+                 "y must be aligned to 64-byte boundary");
+    LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(out.data()) % 64UL == 0,
+                 "out must be aligned to 64-byte boundary");
+    auto                 n       = static_cast<int64_t>(x.size());
+    auto const           a_v     = _mm256_set1_ps(a);
+    auto* LBFGS_RESTRICT x_ptr   = x.data();
+    auto* LBFGS_RESTRICT y_ptr   = y.data();
+    auto* LBFGS_RESTRICT out_ptr = out.data();
+    for (; n >= 16; n -= 16, x_ptr += 16, y_ptr += 16, out_ptr += 16) {
+        _mm256_store_ps(
+            out_ptr, _mm256_add_ps(_mm256_load_ps(y_ptr),
+                                   _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr))));
+        _mm256_store_ps(
+            out_ptr + 8,
+            _mm256_add_ps(_mm256_load_ps(y_ptr + 8),
+                          _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr + 8))));
+    }
+    if (n >= 8) {
+        _mm256_store_ps(
+            out_ptr, _mm256_add_ps(_mm256_load_ps(y_ptr),
+                                   _mm256_mul_ps(a_v, _mm256_load_ps(x_ptr))));
+        n -= 8;
+        x_ptr += 8;
+        y_ptr += 8;
+        out_ptr += 8;
+    }
+    for (; n > 0; --n, ++x_ptr, ++y_ptr) {
+        (*out_ptr) = a * (*x_ptr) + (*y_ptr);
+    }
+}
+#endif
+// ================================= BLAS ================================== }}}
+
 template <size_t Alignment>
 constexpr auto align_up(size_t const value) noexcept -> size_t
 {
@@ -338,71 +707,172 @@ constexpr auto align_up(size_t const value) noexcept -> size_t
 
 } // namespace detail
 
-LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t() noexcept
-    : _workspace{}, _history{}, _func_history{}, _n{}
-{}
+// =============================== Buffers ================================= {{{
+struct lbfgs_buffers_t::impl_t {
+    static constexpr auto cache_line_size = 64UL;
 
+    struct Deleter {
+        template <class T> auto operator()(T* p) const noexcept
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-owning-memory, cppcoreguidelines-no-malloc, hicpp-no-malloc)
+            std::free(p);
+        }
+    };
+
+  private:
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays, modernize-avoid-c-arrays)
+    std::unique_ptr<float[], Deleter>     _workspace;
+    std::vector<detail::iteration_data_t> _history;
+    std::vector<double>                   _func_history;
+    size_t                                _n;
+
+  public:
+    impl_t() noexcept : _workspace{}, _history{}, _func_history{}, _n{0} {}
+    impl_t(size_t n, size_t m, size_t past) noexcept
+        : _workspace{}, _history{}, _func_history{}, _n{0}
+    {
+        resize(n, m, past);
+    }
+
+    impl_t(const impl_t&)     = delete;
+    impl_t(impl_t&&) noexcept = default;
+    auto operator=(const impl_t&) -> impl_t& = delete;
+    auto operator=(impl_t&&) noexcept -> impl_t& = default;
+    ~impl_t() noexcept                           = default;
+
+    auto resize(size_t const n, size_t const m, size_t const past) -> void
+    {
+        if (n != _n || m != _history.size()) {
+            // Since _workspace may need to be re-allocated, we don't want to
+            // keep dangling pointers
+            _history.clear();
+            _history.resize(
+                m, {0.0, std::numeric_limits<double>::quiet_NaN(), {}, {}});
+            _n = n;
+
+            _workspace.reset(nullptr); // release memory before allocating more
+            // We allocate enough memory so _every_ buffer is aligned to cache
+            // line boundary and it's size is also a multiple of cache lines.
+            // That way we can write "beyond" the buffers in 1D vector
+            // algorithms without segfaulting.
+            auto const size = vector_size(n) * number_vectors(m);
+            _workspace      = allocate_buffer(size);
+            std::memset(_workspace.get(), 0, size * sizeof(float));
+            for (auto i = size_t{0}; i < _history.size(); ++i) {
+                _history[i].s = get(2 * i);
+                _history[i].y = get(2 * i + 1);
+            }
+        }
+        if (past != _func_history.size()) { _func_history.resize(past); }
+    }
+
+    auto make_state() noexcept -> detail::lbfgs_state_t
+    {
+        constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
+        auto const     m   = _history.size();
+        return detail::lbfgs_state_t{
+            detail::iteration_history_t{{_history}},
+            {NaN, get(2 * m + 0), get(2 * m + 1)},
+            {NaN, get(2 * m + 2), get(2 * m + 3)},
+            get(2 * m + 4),
+            detail::func_eval_history_t{{_func_history}} /**/};
+    }
+
+  private:
+    static auto allocate_buffer(size_t size)
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays, modernize-avoid-c-arrays)
+        -> std::unique_ptr<float[], Deleter>
+    {
+        if (size > std::numeric_limits<size_t>::max() / sizeof(float)) {
+            throw std::overflow_error{
+                "integer overflow in impl_t::allocate_buffer(size_t)"};
+        }
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast, cppcoreguidelines-owning-memory)
+        auto* p = reinterpret_cast<float*>(
+            std::aligned_alloc(cache_line_size, size * sizeof(float)));
+        if (p == nullptr) { throw std::bad_alloc{}; }
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays, modernize-avoid-c-arrays)
+        return std::unique_ptr<float[], Deleter>{p};
+    }
+
+    static constexpr auto vector_size(size_t const n) noexcept -> size_t
+    {
+        return detail::align_up<cache_line_size / sizeof(float)>(n);
+    }
+
+    static constexpr auto number_vectors(size_t const m) noexcept -> size_t
+    {
+        return 2 * m /* s and y vectors of the last m iterations */
+               + 1   /* x */
+               + 1   /* x_prev */
+               + 1   /* g */
+               + 1   /* g_prev */
+               + 1;  /* d */
+    }
+
+    auto get(size_t const i) noexcept -> gsl::span<float>
+    {
+        auto const size = vector_size(_n);
+        LBFGS_ASSERT(i * size + _n <= size * number_vectors(_history.size()),
+                     "index out of bounds");
+        auto* p = _workspace.get() + i * size;
+        LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(p) % cache_line_size == 0,
+                     "buffer is not aligned to cache line boundary");
+        LBFGS_ASSERT(std::all_of(p + _n, p + size,
+                                 [](auto const x) { return x == 0.0; }),
+                     "buffer is not initialized properly");
+        return {p, _n};
+    }
+};
+
+auto lbfgs_buffers_t::impl() noexcept -> impl_t&
+{
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    return *reinterpret_cast<impl_t*>(&_storage);
+}
+
+// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
+LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t() noexcept
+{
+    static_assert(sizeof(impl_t) <= sizeof(storage_type));
+    static_assert(alignof(impl_t) <= alignof(storage_type));
+    new (&_storage) impl_t{};
+}
+
+// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
 LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(size_t const n, size_t const m,
                                               size_t const past)
-    : _workspace{}, _history{}, _func_history{}, _n{}
 {
-    resize(n, m, past);
+    static_assert(sizeof(impl_t) <= sizeof(storage_type));
+    static_assert(alignof(impl_t) <= alignof(storage_type));
+    new (&_storage) impl_t{n, m, past};
 }
 
-constexpr auto lbfgs_buffers_t::number_vectors(size_t const m) noexcept
-    -> size_t
+// NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
+LBFGS_EXPORT lbfgs_buffers_t::lbfgs_buffers_t(lbfgs_buffers_t&& other) noexcept
 {
-    return 2 * m /* s and y vectors of the last m iterations */
-           + 1   /* x */
-           + 1   /* x_prev */
-           + 1   /* g */
-           + 1   /* g_prev */
-           + 1;  /* d */
+    new (&_storage) impl_t{std::move(other.impl())};
 }
 
-constexpr auto lbfgs_buffers_t::vector_size(size_t const n) noexcept -> size_t
+LBFGS_EXPORT auto lbfgs_buffers_t::operator=(lbfgs_buffers_t&& other) noexcept
+    -> lbfgs_buffers_t&
 {
-    return detail::align_up<64UL / sizeof(float)>(n);
+    impl() = std::move(other.impl());
+    return *this;
 }
 
-auto lbfgs_buffers_t::get(size_t const i) noexcept -> gsl::span<float>
-{
-    auto const size = vector_size(_n);
-    LBFGS_TRACE("%zu * %zu + %zu <= %zu\n", i, size, _n, _workspace.size());
-    LBFGS_ASSERT(i * size + _n <= _workspace.size(), "index out of bounds");
-    return {_workspace.data() + i * size, _n};
-}
+LBFGS_EXPORT lbfgs_buffers_t::~lbfgs_buffers_t() noexcept { impl().~impl_t(); }
 
 LBFGS_EXPORT auto lbfgs_buffers_t::resize(size_t const n, size_t const m,
                                           size_t const past) -> void
 {
-    if (n != _n || m != _history.size()) {
-        // Since _workspace may need to be re-allocated, we don't want to
-        // keep dangling pointers
-        _history.clear();
-        _history.resize(
-            m, {0.0, std::numeric_limits<double>::quiet_NaN(), {}, {}});
-        _n = n;
-        _workspace.resize(vector_size(n) * number_vectors(m));
-        for (auto i = size_t{0}; i < _history.size(); ++i) {
-            _history[i].s = get(2 * i);
-            _history[i].y = get(2 * i + 1);
-        }
-    }
-    if (past != _func_history.size()) { _func_history.resize(past); }
+    impl().resize(n, m, past);
 }
 
 LBFGS_EXPORT auto lbfgs_buffers_t::make_state() noexcept
     -> detail::lbfgs_state_t
 {
-    constexpr auto NaN = std::numeric_limits<double>::quiet_NaN();
-    auto const     m   = _history.size();
-    return detail::lbfgs_state_t{
-        {gsl::span<detail::iteration_data_t>{_history}},
-        {NaN, get(2 * m + 0), get(2 * m + 1)},
-        {NaN, get(2 * m + 2), get(2 * m + 3)},
-        get(2 * m + 4),
-        {gsl::span<double>{_func_history}}};
+    return impl().make_state();
 }
 
 LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
@@ -425,9 +895,47 @@ LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
     }
     return std::addressof(buffers);
 }
+// =============================== Buffers ================================= }}}
 
 namespace detail {
-constexpr auto iteration_history_t::emplace_back_impl(
+// =========================== Iteration history =========================== {{{
+
+LBFGS_FORCEINLINE auto emplace_back_kernel_8(
+    float const* LBFGS_RESTRICT x_ptr, float const* LBFGS_RESTRICT x_prev_ptr,
+    float const* LBFGS_RESTRICT g_ptr, float const* LBFGS_RESTRICT g_prev_ptr,
+    float* LBFGS_RESTRICT s_ptr, float* LBFGS_RESTRICT y_ptr) noexcept
+    -> std::pair<__m256d, __m256d>
+{
+    auto const x_f      = _mm256_load_ps(x_ptr);
+    auto const x_prev_f = _mm256_load_ps(x_prev_ptr);
+    auto const g_f      = _mm256_load_ps(g_ptr);
+    auto const g_prev_f = _mm256_load_ps(g_prev_ptr);
+    _mm256_store_ps(s_ptr, _mm256_sub_ps(x_f, x_prev_f));
+    _mm256_store_ps(y_ptr, _mm256_sub_ps(g_f, g_prev_f));
+
+    auto x1      = _mm256_cvtps_pd(_mm256_extractf128_ps(x_f, 1));
+    auto x0      = _mm256_cvtps_pd(_mm256_extractf128_ps(x_f, 0));
+    auto x_prev1 = _mm256_cvtps_pd(_mm256_extractf128_ps(x_prev_f, 1));
+    auto x_prev0 = _mm256_cvtps_pd(_mm256_extractf128_ps(x_prev_f, 0));
+    auto g1      = _mm256_cvtps_pd(_mm256_extractf128_ps(g_f, 1));
+    auto g0      = _mm256_cvtps_pd(_mm256_extractf128_ps(g_f, 0));
+    auto g_prev1 = _mm256_cvtps_pd(_mm256_extractf128_ps(g_prev_f, 1));
+    auto g_prev0 = _mm256_cvtps_pd(_mm256_extractf128_ps(g_prev_f, 0));
+
+    x0 = _mm256_sub_pd(x0, x_prev0);
+    x1 = _mm256_sub_pd(x1, x_prev1);
+    g0 = _mm256_sub_pd(g0, g_prev0);
+    g1 = _mm256_sub_pd(g1, g_prev1);
+
+    x0 = _mm256_mul_pd(x0, g0);
+    x1 = _mm256_mul_pd(x1, g1);
+    g0 = _mm256_mul_pd(g0, g0);
+    g1 = _mm256_mul_pd(g1, g1);
+
+    return {_mm256_add_pd(x0, x1), _mm256_add_pd(g0, g1)};
+}
+
+LBFGS_EXPORT auto iteration_history_t::emplace_back(
     gsl::span<float const> x, gsl::span<float const> x_prev,
     gsl::span<float const> g, gsl::span<float const> g_prev) noexcept -> double
 {
@@ -437,12 +945,32 @@ constexpr auto iteration_history_t::emplace_back_impl(
         ++_size;
     }
 
-    // TODO: Optimise this loop
-    auto&      s       = _data[idx].s;
-    auto&      y       = _data[idx].y;
-    auto const n       = s.size();
-    auto       s_dot_y = 0.0;
-    auto       y_dot_y = 0.0;
+#if 1
+    auto* s_ptr      = _data[idx].s.data();
+    auto* y_ptr      = _data[idx].y.data();
+    auto* x_ptr      = x.data();
+    auto* x_prev_ptr = x_prev.data();
+    auto* g_ptr      = g.data();
+    auto* g_prev_ptr = g_prev.data();
+    auto  s_dot_y    = _mm256_set1_pd(0.0);
+    auto  y_dot_y    = _mm256_set1_pd(0.0);
+    auto  n          = static_cast<int64_t>(_data[idx].s.size());
+    for (; n > 0; n -= 8, s_ptr += 8, y_ptr += 8, x_ptr += 8, x_prev_ptr += 8,
+                  g_ptr += 8, g_prev_ptr += 8) {
+        auto const [s_dot_y_i, y_dot_y_i] = emplace_back_kernel_8(
+            x_ptr, x_prev_ptr, g_ptr, g_prev_ptr, s_ptr, y_ptr);
+        s_dot_y = _mm256_add_pd(s_dot_y, s_dot_y_i);
+        y_dot_y = _mm256_add_pd(y_dot_y, y_dot_y_i);
+    }
+    auto const final_s_dot_y = hsum(s_dot_y);
+    auto const final_y_dot_y = hsum(y_dot_y);
+
+#else
+    auto&      s             = _data[idx].s;
+    auto&      y             = _data[idx].y;
+    auto const n             = s.size();
+    auto       final_s_dot_y = 0.0;
+    auto       final_y_dot_y = 0.0;
     for (auto i = size_t{0}; i < n; ++i) {
         auto const s_i =
             static_cast<double>(x[i]) - static_cast<double>(x_prev[i]);
@@ -450,20 +978,15 @@ constexpr auto iteration_history_t::emplace_back_impl(
             static_cast<double>(g[i]) - static_cast<double>(g_prev[i]);
         s[i] = static_cast<float>(s_i);
         y[i] = static_cast<float>(y_i);
-        s_dot_y += s_i * y_i;
-        y_dot_y += y_i * y_i;
+        final_s_dot_y += s_i * y_i;
+        final_y_dot_y += y_i * y_i;
     }
-    _data[idx].s_dot_y = s_dot_y;
-    _data[idx].alpha   = std::numeric_limits<double>::quiet_NaN();
-    LBFGS_ASSERT(s_dot_y > 0, "something went wrong during line search");
-    return s_dot_y / y_dot_y;
-}
+#endif
 
-LBFGS_EXPORT auto iteration_history_t::emplace_back(
-    gsl::span<float const> x, gsl::span<float const> x_prev,
-    gsl::span<float const> g, gsl::span<float const> g_prev) noexcept -> double
-{
-    return emplace_back_impl(x, x_prev, g, g_prev);
+    _data[idx].s_dot_y = final_s_dot_y;
+    _data[idx].alpha   = std::numeric_limits<double>::quiet_NaN();
+    LBFGS_ASSERT(final_s_dot_y > 0, "something went wrong during line search");
+    return final_s_dot_y / final_y_dot_y;
 }
 
 constexpr auto iteration_history_t::capacity() const noexcept -> size_type
@@ -500,7 +1023,7 @@ constexpr auto iteration_history_t::sum(size_type const a,
     -> size_type
 {
     auto r = a + b;
-    r -= (r >= capacity()) * capacity();
+    r -= static_cast<size_type>(r >= capacity()) * capacity();
     return r;
 }
 
@@ -509,6 +1032,9 @@ constexpr auto iteration_history_t::back_index() const noexcept -> size_type
     return sum(_first, _size);
 }
 
+// NOTE: No we don't want to declare a destructor because it would prevent copy
+// and move constructors from being constexpr
+// NOLINTNEXTLINE(hicpp-special-member-functions, cppcoreguidelines-special-member-functions)
 template <bool IsConst> class iteration_history_t::history_iterator {
   public:
     using type            = history_iterator<IsConst>;
@@ -519,13 +1045,13 @@ template <bool IsConst> class iteration_history_t::history_iterator {
         std::conditional_t<IsConst, value_type const, value_type>&;
     using iterator_category = std::bidirectional_iterator_tag;
 
-    constexpr history_iterator() noexcept                        = default;
+    constexpr history_iterator() noexcept : _obj{nullptr}, _i{0} {}
     constexpr history_iterator(history_iterator const&) noexcept = default;
     constexpr history_iterator(history_iterator&&) noexcept      = default;
-    constexpr history_iterator&
-    operator=(history_iterator const&) noexcept = default;
-    constexpr history_iterator&
-    operator=(history_iterator&&) noexcept = default;
+    constexpr auto operator  =(history_iterator const&) noexcept
+        -> history_iterator& = default;
+    constexpr auto operator  =(history_iterator&&) noexcept
+        -> history_iterator& = default;
 
     constexpr auto operator*() const noexcept -> reference
     {
@@ -584,6 +1110,7 @@ template <bool IsConst> class iteration_history_t::history_iterator {
         return !(*this == other);
     }
 
+    // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
     constexpr operator history_iterator<true>() const noexcept
     {
         return {_obj, _i};
@@ -624,6 +1151,7 @@ constexpr auto iteration_history_t::end() noexcept -> iterator
 {
     return {this, size()};
 }
+// =========================== Iteration history =========================== }}}
 
 template <class Iterator>
 auto apply_inverse_hessian(Iterator begin, Iterator end, double const gamma,

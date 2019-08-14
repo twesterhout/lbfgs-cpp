@@ -66,6 +66,7 @@
 #    define LBFGS_LIKELY(cond) (cond)
 #    define LBFGS_UNLIKELY(cond) (cond)
 #    define LBFGS_CURRENT_FUNCTION ""
+#    define LBFGS_RESTRICT
 #elif defined(WIN32) || defined(_WIN32)
 #    define LBFGS_EXPORT __declspec(dllexport)
 #    define LBFGS_NOINLINE __declspec(noinline)
@@ -73,6 +74,7 @@
 #    define LBFGS_LIKELY(cond) (cond)
 #    define LBFGS_UNLIKELY(cond) (cond)
 #    define LBFGS_CURRENT_FUNCTION __FUNCTION__
+#    define LBFGS_RESTRICT
 #else
 #    define LBFGS_EXPORT __attribute__((visibility("default")))
 #    define LBFGS_NOINLINE __attribute__((noinline))
@@ -80,6 +82,7 @@
 #    define LBFGS_LIKELY(cond) __builtin_expect(!!(cond), 1)
 #    define LBFGS_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
 #    define LBFGS_CURRENT_FUNCTION __PRETTY_FUNCTION__
+#    define LBFGS_RESTRICT __restrict__
 #endif
 /// \endcond
 

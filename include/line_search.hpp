@@ -30,8 +30,9 @@
 
 #include "config.hpp"
 
-#include <cmath> // std::sqrt
-#include <tuple> // std::tie
+#include <cmath>  // std::sqrt
+#include <limits> // std::numeric_limits
+#include <tuple>  // std::tie
 #include <type_traits>
 #include <utility>
 
@@ -87,11 +88,17 @@ struct ls_param_t {
     /// \note #func_0 and #grad_0 are set to `NaN`, so be
     /// sure to reset them using #at_zero() before calling #line_search().
     constexpr ls_param_t() noexcept
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         : x_tol{1e-8}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , f_tol{1e-4}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , g_tol{0.9}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , step_min{1e-8}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , step_max{1e8}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , max_f_evals{20}
         , func_0{std::numeric_limits<double>::quiet_NaN()}
         , grad_0{std::numeric_limits<double>::quiet_NaN()}
@@ -127,13 +134,23 @@ struct ls_result_t {
 };
 
 /// \brief More-Thuente line search algorithm.
+///
+/// \param value_and_gradient A function which given `α` (of type `double`)
+///     returns `(f(α), f'(α))`. It is okay to return a `std::pair`,
+///     `std::tuple`, or any other structure which can be unpacked into two
+///     values. Types of `f(α)` and `f'(α)` don't have to be the same, but
+///     should both be implicitly convertible to `double`.
+///
+/// \param params Algorithm parameters such as the required accuracy and bounds
+///     on the step size. See #ls_param_t for more info.
+///
+/// \param alpha_0 Initial step size. Must be positive.
 template <class Function>
-LBFGS_NOINLINE auto
-line_search(Function&& value_and_gradient, ls_param_t const& params,
-            double const alpha_0 =
-                1.0) noexcept(noexcept(std::
-                                           declval<Function&>()(
-                                               std::declval<double>())))
+[[nodiscard]] LBFGS_NOINLINE auto line_search(
+    Function&& value_and_gradient, ls_param_t const& params,
+    double alpha_0 = 1.0) noexcept(noexcept(std::
+                                                declval<Function&>()(
+                                                    std::declval<double>())))
     -> ls_result_t;
 
 // ========================== Public Interface ============================= }}}
@@ -169,6 +186,9 @@ clamp(T const& x, T const& lo, T const& hi, Comp comp = {}) noexcept(noexcept(
 ///
 /// #tcm::lbfgs::detail::interval_t maintains the property that #min() <=
 /// #max(). It is a lightweight trivially copyable wrapper around two `double`s.
+// NOTE: No we don't want to declare a destructor because it would prevent copy
+// and move constructors from being constexpr
+// NOLINTNEXTLINE(hicpp-special-member-functions, cppcoreguidelines-special-member-functions)
 class interval_t {
   private:
     double _min; ///< Lower bound
@@ -204,6 +224,7 @@ class interval_t {
         else {
             // See the explanation around eq. (2.2) on p. 291
             _min = x;
+            // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
             _max = t + 4.0 * (t - x);
             LBFGS_ASSERT(_min <= _max, "invalid interval");
         }
@@ -211,15 +232,16 @@ class interval_t {
 
     constexpr interval_t(interval_t const&) noexcept = default;
     constexpr interval_t(interval_t&&) noexcept      = default;
-    constexpr interval_t& operator=(interval_t const&) noexcept = default;
-    constexpr interval_t& operator=(interval_t&&) noexcept = default;
+    constexpr auto operator=(interval_t const&) noexcept
+        -> interval_t&     = default;
+    constexpr auto operator=(interval_t&&) noexcept -> interval_t& = default;
 
     /// Returns the length of the interval
-    constexpr auto length() const noexcept { return _max - _min; }
+    [[nodiscard]] constexpr auto length() const noexcept { return _max - _min; }
     /// Returns the lower bound of the interval
-    constexpr auto min() const noexcept { return _min; }
+    [[nodiscard]] constexpr auto min() const noexcept { return _min; }
     /// Returns the upper bound of the interval
-    constexpr auto max() const noexcept { return _max; }
+    [[nodiscard]] constexpr auto max() const noexcept { return _max; }
 };
 
 static_assert(std::is_trivially_copyable_v<interval_t>,
@@ -250,17 +272,22 @@ struct ls_state_t {
 /// returned. Otherwise, the #status_t returned indicated the error.
 constexpr auto check_parameters(ls_param_t const& p) noexcept -> status_t
 {
-    if (std::isnan(p.x_tol) || p.x_tol <= 0.0)
+    if (std::isnan(p.x_tol) || p.x_tol <= 0.0) {
         return status_t::invalid_interval_tolerance;
-    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0)
+    }
+    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0) {
         return status_t::invalid_function_tolerance;
-    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0)
+    }
+    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0) {
         return status_t::invalid_gradient_tolerance;
+    }
     if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0
-        || p.step_max <= p.step_min)
+        || p.step_max <= p.step_min) {
         return status_t::invalid_step_bounds;
-    if (std::isnan(p.func_0) || std::isnan(p.grad_0) || p.grad_0 >= 0.0)
+    }
+    if (std::isnan(p.func_0) || std::isnan(p.grad_0) || p.grad_0 >= 0.0) {
         return status_t::invalid_argument;
+    }
     return status_t::success;
 }
 
@@ -649,6 +676,7 @@ struct ensure_shrinking_fn {
 
     constexpr ensure_shrinking_fn(ls_state_t&  state,
                                   double const max_width) noexcept
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         : _state{state}, _width_history{2.0 * max_width, max_width}
     {
         LBFGS_ASSERT(max_width >= 0.0, "width cannot be negative");
@@ -673,6 +701,7 @@ struct ensure_shrinking_fn {
             auto const new_width = std::abs(_state.y.alpha - _state.x.alpha);
             if (new_width >= delta * _width_history.previous) {
                 _state.t.alpha =
+                    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
                     _state.x.alpha + 0.5 * (_state.y.alpha - _state.x.alpha);
             }
             _width_history.push(new_width);
@@ -712,9 +741,10 @@ struct with_modified_function_t {
 
     with_modified_function_t(with_modified_function_t const&) = delete;
     with_modified_function_t(with_modified_function_t&&)      = delete;
-    with_modified_function_t&
-                              operator=(with_modified_function_t const&) = delete;
-    with_modified_function_t& operator=(with_modified_function_t&&) = delete;
+    auto operator                    =(with_modified_function_t const&)
+        -> with_modified_function_t& = delete;
+    auto operator                    =(with_modified_function_t &&)
+        -> with_modified_function_t& = delete;
 
   private:
     ls_state_t&  _s;
@@ -776,10 +806,11 @@ auto line_search_impl(
         /*t=*/endpoint_t{alpha_0, NaN, NaN},
         /*interval=*/interval_t{0, 0, alpha_0, false},
         /*bracketed=*/false,
-        /*num_f_evals=*/0u,
+        /*num_f_evals=*/0U,
     };
     auto first_stage = true; // TODO(twesterhout): Explain stages
 
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init, hicpp-member-init)
     ls_result_t           _result;
     evaluate_fn           evaluate{value_and_gradient, state};
     ensure_shrinking_fn   ensure_shrinking{state, params};

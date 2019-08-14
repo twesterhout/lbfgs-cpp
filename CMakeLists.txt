@@ -49,6 +49,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_EXTENSIONS OFF)
 
 option(LBFGS_USE_VALGRIND "Perform tests with Valgrind" OFF)
+option(LBFGS_USE_BLAS "Use BLAS for 1D vector operations" OFF)
 option(LBFGS_BUILD_TESTING "Build tests" ON)
 option(LBFGS_BUILD_EXAMPLES "Build examples" OFF)
 option(LBFGS_ENABLE_COVERAGE "Generate coverage for codecov.io" ON)
@@ -112,9 +113,15 @@ target_link_libraries(Common INTERFACE gsl-lite)
 if (LBFGS_DEBUG)
     target_compile_definitions(Common INTERFACE LBFGS_DEBUG=1)
 endif()
+if (LBFGS_USE_BLAS)
+    target_compile_definitions(Common INTERFACE LBFGS_USE_BLAS=1)
+    target_link_libraries(Common INTERFACE ${BLAS_LIBRARIES})
+else()
+    target_link_libraries(Common INTERFACE ${BLAS_LIBRARIES})
+endif()
 
 add_library(lbfgs SHARED src/lbfgs.cpp)
-target_link_libraries(lbfgs Common ${BLAS_LIBRARIES})
+target_link_libraries(lbfgs Common)
 
 
 CHECK_CXX_COMPILER_FLAG("-fvisibility=hidden" LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
@@ -142,7 +149,7 @@ target_link_libraries(lbfgs_example PUBLIC lbfgs ${BLAS_LIBRARIES})
 # endif()
 
 
-
+add_subdirectory(bench)
 
 
 if (BUILD_TESTING AND LBFGS_BUILD_TESTING AND NOT_SUBPROJECT)

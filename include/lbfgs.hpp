@@ -31,6 +31,8 @@
 #include "config.hpp"
 #include "line_search.hpp"
 
+#include <gsl/gsl-lite.hpp>
+
 #include <cstring> // std::memcpy
 #include <numeric>
 #include <system_error>
@@ -38,9 +40,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-
-#include <gsl/gsl-lite.hpp>
-#include <cblas.h>
 
 /// \file lbfgs.hpp
 ///
@@ -83,11 +82,14 @@ struct lbfgs_param_t {
     unsigned max_f_evals;
 
   private:
-    constexpr lbfgs_param_t(ls_param_t const& ls) noexcept
+    explicit constexpr lbfgs_param_t(ls_param_t const& ls) noexcept
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         : m{5}
         , past{0}
         , max_iter{0}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , epsilon{1e-5}
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
         , delta{1e-5}
         , x_tol{ls.x_tol}
         , f_tol{ls.f_tol}
@@ -102,7 +104,7 @@ struct lbfgs_param_t {
     constexpr lbfgs_param_t() noexcept : lbfgs_param_t{ls_param_t{}} {}
 
     /// Returns the parameters for More-Thuente line search.
-    constexpr auto line_search() const noexcept -> ls_param_t
+    [[nodiscard]] constexpr auto line_search() const noexcept -> ls_param_t
     {
         ls_param_t p;
         p.x_tol       = x_tol;
@@ -133,29 +135,33 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
 namespace detail {
 auto dot(gsl::span<float const> a, gsl::span<float const> b) noexcept -> double;
 auto nrm2(gsl::span<float const> x) noexcept -> double;
-auto axpy(float const a, gsl::span<float const> x, gsl::span<float> y) noexcept
+auto axpy(float a, gsl::span<float const> x, gsl::span<float> y) noexcept
     -> void;
-auto axpy(float const a, gsl::span<float const> x, gsl::span<float const> y,
+auto axpy(float a, gsl::span<float const> x, gsl::span<float const> y,
           gsl::span<float> out) noexcept -> void;
-auto scal(float const a, gsl::span<float> x) noexcept -> void;
-auto negative_copy(gsl::span<float const> const src,
-                   gsl::span<float> const       dst) noexcept -> void;
+auto scal(float a, gsl::span<float> x) noexcept -> void;
+auto negative_copy(gsl::span<float const> src, gsl::span<float> dst) noexcept
+    -> void;
 
 /// Checks \p p for validity.
 constexpr auto check_parameters(lbfgs_param_t const& p) noexcept -> status_t
 {
-    if (p.m <= 0) return status_t::invalid_storage_size;
-    if (p.epsilon < 0) return status_t::invalid_epsilon;
-    if (p.delta < 0) return status_t::invalid_delta;
-    if (std::isnan(p.x_tol) || p.x_tol <= 0.0)
+    if (p.m <= 0) { return status_t::invalid_storage_size; }
+    if (p.epsilon < 0) { return status_t::invalid_epsilon; }
+    if (p.delta < 0) { return status_t::invalid_delta; }
+    if (std::isnan(p.x_tol) || p.x_tol <= 0.0) {
         return status_t::invalid_interval_tolerance;
-    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0)
+    }
+    if (std::isnan(p.f_tol) || p.f_tol <= 0.0 || p.f_tol >= 1.0) {
         return status_t::invalid_function_tolerance;
-    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0)
+    }
+    if (std::isnan(p.g_tol) || p.g_tol <= 0.0 || p.g_tol >= 1.0) {
         return status_t::invalid_gradient_tolerance;
+    }
     if (std::isnan(p.step_min) || std::isnan(p.step_max) || p.step_min <= 0.0
-        || p.step_max <= p.step_min)
+        || p.step_max <= p.step_min) {
         return status_t::invalid_step_bounds;
+    }
     return status_t::success;
 }
 
@@ -172,6 +178,10 @@ struct iteration_data_t {
 class iteration_history_t {
     static_assert(std::is_nothrow_copy_assignable_v<iteration_data_t>);
     static_assert(std::is_nothrow_move_assignable_v<iteration_data_t>);
+    static_assert(
+        std::is_nothrow_copy_assignable_v<gsl::span<iteration_data_t>>);
+    static_assert(
+        std::is_nothrow_move_assignable_v<gsl::span<iteration_data_t>>);
     template <bool> class history_iterator;
 
   public:
@@ -183,42 +193,39 @@ class iteration_history_t {
     using const_iterator  = history_iterator<true>;
 
     /// Constructs an empty history object.
-    constexpr iteration_history_t(gsl::span<iteration_data_t> data) noexcept
+    explicit constexpr iteration_history_t(
+        gsl::span<iteration_data_t> data) noexcept
         : _first{0}, _size{0}, _data{data}
     {}
 
     constexpr iteration_history_t(iteration_history_t const&) noexcept =
         default;
     constexpr iteration_history_t(iteration_history_t&&) noexcept = default;
-    constexpr iteration_history_t&
-    operator=(iteration_history_t const&) noexcept = default;
-    constexpr iteration_history_t&
-    operator=(iteration_history_t&&) noexcept = default;
+    constexpr auto operator     =(iteration_history_t const&) noexcept
+        -> iteration_history_t& = default;
+    constexpr auto operator     =(iteration_history_t&&) noexcept
+        -> iteration_history_t& = default;
 
     auto emplace_back(gsl::span<float const> x, gsl::span<float const> x_prev,
                       gsl::span<float const> g,
                       gsl::span<float const> g_prev) noexcept -> double;
 
-    constexpr auto begin() const noexcept -> const_iterator;
-    constexpr auto begin() noexcept -> iterator;
-    constexpr auto end() const noexcept -> const_iterator;
-    constexpr auto end() noexcept -> iterator;
+    [[nodiscard]] constexpr auto begin() const noexcept -> const_iterator;
+    [[nodiscard]] constexpr auto begin() noexcept -> iterator;
+    [[nodiscard]] constexpr auto end() const noexcept -> const_iterator;
+    [[nodiscard]] constexpr auto end() noexcept -> iterator;
 
   private:
-    constexpr auto emplace_back_impl(gsl::span<float const> x,
-                                     gsl::span<float const> x_prev,
-                                     gsl::span<float const> g,
-                                     gsl::span<float const> g_prev) noexcept
-        -> double;
-    constexpr auto capacity() const noexcept -> size_type;
-    constexpr auto size() const noexcept -> size_type;
-    constexpr auto empty() const noexcept -> bool;
-    constexpr auto operator[](size_type const i) const noexcept
+    [[nodiscard]] constexpr auto capacity() const noexcept -> size_type;
+    [[nodiscard]] constexpr auto size() const noexcept -> size_type;
+    [[nodiscard]] constexpr auto empty() const noexcept -> bool;
+    [[nodiscard]] constexpr auto operator[](size_type i) const noexcept
         -> iteration_data_t const&;
-    constexpr auto operator[](size_type const i) noexcept -> iteration_data_t&;
-    constexpr auto sum(size_type const a, size_type const b) const noexcept
+    [[nodiscard]] constexpr auto operator[](size_type i) noexcept
+        -> iteration_data_t&;
+    [[nodiscard]] constexpr auto sum(size_type a, size_type b) const noexcept
         -> size_type;
-    constexpr auto back_index() const noexcept -> size_type;
+    [[nodiscard]] constexpr auto back_index() const noexcept -> size_type;
 
   private:
     friend history_iterator<true>;
@@ -229,19 +236,23 @@ class iteration_history_t {
     gsl::span<iteration_data_t> _data;
 };
 
+/// Keeps track of the last function evaluation results.
 class func_eval_history_t {
   public:
-    constexpr func_eval_history_t(gsl::span<double> data) noexcept
+    explicit constexpr func_eval_history_t(gsl::span<double> data) noexcept
         : _first{0}, _size{0}, _data{data}
     {}
 
     func_eval_history_t(func_eval_history_t const&) = delete;
     func_eval_history_t(func_eval_history_t&&)      = delete;
-    func_eval_history_t& operator=(func_eval_history_t const&) = delete;
-    func_eval_history_t& operator=(func_eval_history_t&&) = delete;
+    auto operator=(func_eval_history_t const&) -> func_eval_history_t& = delete;
+    auto operator=(func_eval_history_t &&) -> func_eval_history_t& = delete;
 
-    constexpr auto size() const noexcept { return _size; }
-    constexpr auto capacity() const noexcept { return _data.size(); }
+    [[nodiscard]] constexpr auto size() const noexcept { return _size; }
+    [[nodiscard]] constexpr auto capacity() const noexcept
+    {
+        return _data.size();
+    }
 
     constexpr auto emplace_back(double const func) noexcept -> void
     {
@@ -254,23 +265,24 @@ class func_eval_history_t {
         _data[idx] = func;
     }
 
-    constexpr auto front() const noexcept -> double
+    [[nodiscard]] constexpr auto front() const noexcept -> double
     {
         LBFGS_ASSERT(size() > 0, "index out of bounds");
         return _data[_first];
     }
 
-    constexpr auto back() const noexcept -> double
+    [[nodiscard]] constexpr auto back() const noexcept -> double
     {
         LBFGS_ASSERT(size() > 0, "index out of bounds");
         return _data[sum(_first, size() - 1)];
     }
 
   private:
-    constexpr auto sum(size_t const a, size_t const b) const noexcept -> size_t
+    [[nodiscard]] constexpr auto sum(size_t const a, size_t const b) const
+        noexcept -> size_t
     {
         auto r = a + b;
-        r -= (r >= capacity()) * capacity();
+        r -= static_cast<size_t>(r >= capacity()) * capacity();
         return r;
     }
 
@@ -325,14 +337,14 @@ struct lbfgs_point_t {
     lbfgs_point_t(lbfgs_point_t const& other) = delete;
     lbfgs_point_t(lbfgs_point_t&&)            = delete;
 
-    lbfgs_point_t& operator=(lbfgs_point_t const& other) noexcept
+    auto operator=(lbfgs_point_t const& other) noexcept -> lbfgs_point_t&
     {
         LBFGS_ASSERT(x.size() == other.x.size(), "incompatible sizes");
         LBFGS_ASSERT(grad.size() == other.grad.size(), "incompatible sizes");
         LBFGS_ASSERT(!are_overlapping(x, other.x), "overlapping ranges");
         LBFGS_ASSERT(!are_overlapping(grad, other.grad), "overlapping ranges");
 
-        if (LBFGS_UNLIKELY(this == std::addressof(other))) return *this;
+        if (LBFGS_UNLIKELY(this == std::addressof(other))) { return *this; }
         value = other.value;
         std::memcpy(x.data(), other.x.data(), x.size() * sizeof(float));
         std::memcpy(grad.data(), other.grad.data(),
@@ -352,18 +364,24 @@ struct lbfgs_state_t {
 
 struct lbfgs_buffers_t {
   private:
-    std::vector<float>                    _workspace;
-    std::vector<detail::iteration_data_t> _history;
-    std::vector<double>                   _func_history;
-    size_t                                _n;
+    struct impl_t;
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-magic-numbers, readability-magic-numbers)
+    using storage_type = std::aligned_storage_t<64, 8>;
 
-    static constexpr auto number_vectors(size_t const m) noexcept -> size_t;
-    static constexpr auto vector_size(size_t const n) noexcept -> size_t;
-    auto                  get(size_t const i) noexcept -> gsl::span<float>;
+    storage_type _storage;
+
+    inline auto impl() noexcept -> impl_t&;
 
   public:
     lbfgs_buffers_t() noexcept;
     lbfgs_buffers_t(size_t n, size_t m, size_t past);
+
+    lbfgs_buffers_t(lbfgs_buffers_t const&) = delete;
+    lbfgs_buffers_t(lbfgs_buffers_t&&) noexcept;
+    auto operator=(lbfgs_buffers_t const&) -> lbfgs_buffers_t& = delete;
+    auto operator=(lbfgs_buffers_t&&) noexcept -> lbfgs_buffers_t&;
+    ~lbfgs_buffers_t() noexcept;
+
     auto resize(size_t n, size_t m, size_t past) -> void;
     auto make_state() noexcept -> detail::lbfgs_state_t;
 };
@@ -383,8 +401,8 @@ inline auto print_span(char const* prefix, gsl::span<float const> xs) -> void
 #endif
 
 namespace detail {
-auto apply_inverse_hessian(iteration_history_t& history, double const gamma,
-                           gsl::span<float> const q) -> void;
+auto apply_inverse_hessian(iteration_history_t& history, double gamma,
+                           gsl::span<float> q) -> void;
 
 struct line_search_runner_fn {
 
@@ -395,8 +413,9 @@ struct line_search_runner_fn {
 
     line_search_runner_fn(line_search_runner_fn const&) = delete;
     line_search_runner_fn(line_search_runner_fn&&)      = delete;
-    line_search_runner_fn& operator=(line_search_runner_fn const&) = delete;
-    line_search_runner_fn& operator=(line_search_runner_fn&&) = delete;
+    auto operator                 =(line_search_runner_fn const&)
+        -> line_search_runner_fn& = delete;
+    auto operator=(line_search_runner_fn &&) -> line_search_runner_fn& = delete;
 
   private:
     template <class Function> struct wrapper_t {
@@ -550,7 +569,7 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
     auto step = 1.0 / grad_0_norm;
     detail::negative_copy(state.current.grad, state.direction);
 
-    for (auto iteration = 1u;; ++iteration) {
+    for (auto iteration = 1U;; ++iteration) {
         state.previous = state.current;
 
         if (auto const status = do_line_search(value_and_gradient, step);
