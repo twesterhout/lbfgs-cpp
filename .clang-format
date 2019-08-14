@@ -57,9 +57,9 @@ IncludeCategories:
   - Regex:           '^"detail/'
     Priority:        1
   - Regex:           '^<(boost|gsl|spdlog|tl)'
-    Priority:        4
-  - Regex:           '^<.*\.h>$'
     Priority:        5
+  - Regex:           '^<.*\.h>$'
+    Priority:        4
   - Regex:           '^<'
     Priority:        6
   - Regex:           '.*'
