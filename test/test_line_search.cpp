@@ -693,3 +693,101 @@ TEST_CASE("Function (5.4) β₁=0.001, β₂=0.01", "[line_search]")
         // REQUIRE(num_f_evals == 11);
     }
 }
+
+TEST_CASE("Quadratic Function", "[LineSearches.jl:alphacalc]")
+{
+    {
+        auto const value_and_gradient = [](auto const alpha) {
+            auto const t  = -1.0f + 2.0f * static_cast<float>(alpha);
+            auto const f  = 2.0f * t * t;
+            auto const df = 4.0f * t;
+            return std::make_pair(f, df);
+        };
+        auto const [func_0, grad_0] = value_and_gradient(0.0f);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#endif
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
+            ::LBFGS_NAMESPACE::line_search(
+                value_and_gradient,
+                ::LBFGS_NAMESPACE::ls_param_t{}.at_zero(func_0, grad_0),
+                /*alpha_0=*/1.0);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
+        REQUIRE(alpha == Approx(0.49995));
+    }
+
+    {
+        auto const value_and_gradient = [](auto const alpha) {
+            auto const t  = 2.0f * static_cast<float>(alpha);
+            auto const f  = 2.0f * t * t;
+            auto const df = 4.0f * t;
+            return std::make_pair(f, df);
+        };
+        auto const [func_0, grad_0] = value_and_gradient(0.0f);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#endif
+        auto const [status, alpha, _1, grad, num_f_evals, _2] =
+            ::LBFGS_NAMESPACE::line_search(
+                value_and_gradient,
+                ::LBFGS_NAMESPACE::ls_param_t{}.at_zero(func_0, grad_0),
+                /*alpha_0=*/1.0);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+        REQUIRE(status == ::LBFGS_NAMESPACE::status_t::invalid_argument);
+        REQUIRE(alpha == Approx(0.0));
+    }
+}
+
+TEST_CASE("Himmelblau's Function", "[LineSearches.jl:alphacalc]")
+{
+    auto const himmelblau = [](std::array<float, 2> const x) {
+        auto const t1 = x[0] * x[0] + x[1] - 11.0f;
+        auto const t2 = x[0] + x[1] * x[1] - 7.0f;
+        return t1 * t1 + t2 * t2;
+    };
+
+    auto const himmelblau_gradient = [](std::array<float, 2> const x) {
+        return std::array<float, 2>{
+            4.0f * x[0] * x[0] * x[0] + 4.0f * x[0] * x[1] - 44.0f * x[0]
+                + 2.0f * x[0] + 2.0f * x[1] * x[1] - 14.0f,
+            2.0f * x[0] * x[0] + 2.0f * x[1] - 22.0f + 4.0f * x[0] * x[1]
+                + 4.0f * x[1] * x[1] * x[1] - 28.0f * x[1]};
+    };
+
+    auto const x0 = std::array<float, 2>{2.0f, 2.0f};
+    auto const s  = std::array<float, 2>{42.0f, 18.0f};
+
+    auto const value_and_gradient = [=](auto const alpha) {
+        auto const x =
+            std::array<float, 2>{x0[0] + static_cast<float>(alpha) * s[0],
+                                 x0[1] + static_cast<float>(alpha) * s[1]};
+        auto const f  = himmelblau(x);
+        auto const df = himmelblau_gradient(x);
+        return std::make_pair(f, df[0] * s[0] + df[1] * s[1]);
+    };
+    auto const [func_0, grad_0] = value_and_gradient(0.0f);
+    REQUIRE(func_0 == Approx(26.0));
+    REQUIRE(grad_0 == Approx(-2088.0));
+
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdouble-promotion"
+#endif
+    auto const [status, alpha, _1, grad, num_f_evals, _2] =
+        ::LBFGS_NAMESPACE::line_search(
+            value_and_gradient,
+            ::LBFGS_NAMESPACE::ls_param_t{}.at_zero(func_0, grad_0),
+            /*alpha_0=*/1.0);
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
+    REQUIRE(status == ::LBFGS_NAMESPACE::status_t::success);
+    REQUIRE(alpha == Approx(0.0175892025844326));
+}
