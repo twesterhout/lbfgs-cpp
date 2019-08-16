@@ -3,7 +3,7 @@
 
 int main()
 {
-    constexpr size_t N = 10;
+    constexpr size_t N = 1000;
     static_assert(N % 2 == 0);
     std::vector<float> x0(N);
 
@@ -29,6 +29,8 @@ int main()
     auto result = tcm::lbfgs::minimize(value_and_gradient,
                                        tcm::lbfgs::lbfgs_param_t{}, {x0});
 
-    std::cerr << result.func << '\n';
+    std::cerr << "status=" << make_error_code(result.status).message()
+              << ", num_iter=" << result.num_iter << ", func=" << result.func
+              << '\n';
     return 0;
 }
