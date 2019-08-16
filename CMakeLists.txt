@@ -32,12 +32,14 @@
 cmake_minimum_required(VERSION 3.9)
 cmake_policy(SET CMP0074 NEW)
 
-# detect if we're being bundled, disable test and install targets in that case
-if(NOT DEFINED PROJECT_NAME)
-  set(NOT_SUBPROJECT ON)
-endif()
-
 project(lbfgs-cpp)
+
+# detect if we're being bundled, disable test and install targets in that case
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(NOT_SUBPROJECT ON)
+else()
+    set(NOT_SUBPROJECT OFF)
+endif()
 
 include(CTest)
 include(CheckCXXCompilerFlag)
@@ -93,7 +95,7 @@ elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
         -Wlogical-op -Wmissing-declarations -Wmissing-include-dirs -Wnoexcept
         -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow
         -Wsign-conversion -Wsign-promo -Wstrict-null-sentinel
-        -Wstrict-overflow=1 -Wswitch-default -Wundef -Wno-unused)
+        -Wstrict-overflow=1 -Wswitch-default -Wundef -Wno-unused -Wno-noexcept)
 endif()
 
 find_package(Git)
@@ -120,8 +122,6 @@ set(lbfgs-cpp_SOURCES
     "src/lbfgs.cpp")
 
 function(setup_lbfgs_target MY_TARGET)
-    target_include_directories(${MY_TARGET} PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_compile_features(${MY_TARGET} PUBLIC cxx_std_17)
     target_compile_options(${MY_TARGET} PRIVATE "${LBFGS_WARNING_FLAGS}")
     if (LBFGS_DEBUG)
@@ -144,6 +144,7 @@ endfunction()
 # Main target
 add_library(lbfgs ${lbfgs-cpp_HEADERS}
                   ${lbfgs-cpp_SOURCES})
+target_include_directories(lbfgs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 setup_lbfgs_target(lbfgs)
 check_cxx_compiler_flag("-fvisibility=hidden" LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
 if(LBFGS_COMPILER_OPT_HIDDEN_SUPPORTED)
@@ -157,11 +158,9 @@ if (LBFGS_USE_BLAS)
     target_include_directories(lbfgs PUBLIC ${CBLAS_INCLUDE_DIR})
 endif()
 
-add_library(lbfgs-cpp::lbfgs ALIAS lbfgs)
-
 if (NOT TARGET gsl::gsl-lite)
     add_subdirectory(third_party/gsl-lite)
-    if("${_LBFGS_BUILD_TYPE}" STREQUAL "DEBUG")
+    if ("${_LBFGS_BUILD_TYPE}" STREQUAL "DEBUG")
         target_compile_definitions(lbfgs PUBLIC
             gsl_CONFIG_CONTRACT_VIOLATION_CALLS_HANDLER=1)
     else()
@@ -171,6 +170,7 @@ if (NOT TARGET gsl::gsl-lite)
     endif()
 endif()
 target_link_libraries(lbfgs PUBLIC gsl::gsl-lite)
+target_compile_definitions(lbfgs PUBLIC LBFGS_USE_GSL_LITE=1)
 
 if (LBFGS_BUILD_TESTING)
     if (NOT TARGET Catch2::Catch2)
@@ -204,3 +204,5 @@ endif()
 # if (LBFGS_BUILD_BENCHMARKS)
 #     add_subdirectory(bench)
 # endif()
+
+add_library(lbfgs-cpp::lbfgs ALIAS lbfgs)
