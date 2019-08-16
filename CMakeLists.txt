@@ -161,7 +161,6 @@ add_library(lbfgs-cpp::lbfgs ALIAS lbfgs)
 
 if (NOT TARGET gsl::gsl-lite)
     add_subdirectory(third_party/gsl-lite)
-    target_link_libraries(lbfgs PUBLIC gsl::gsl-lite)
     if("${_LBFGS_BUILD_TYPE}" STREQUAL "DEBUG")
         target_compile_definitions(lbfgs PUBLIC
             gsl_CONFIG_CONTRACT_VIOLATION_CALLS_HANDLER=1)
@@ -171,6 +170,7 @@ if (NOT TARGET gsl::gsl-lite)
         message(STATUS "[lbfgs-cpp] Disabling gsl-lite contracts")
     endif()
 endif()
+target_link_libraries(lbfgs PUBLIC gsl::gsl-lite)
 
 if (LBFGS_BUILD_TESTING)
     if (NOT TARGET Catch2::Catch2)
