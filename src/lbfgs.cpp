@@ -819,7 +819,7 @@ struct lbfgs_buffers_t::impl_t {
         LBFGS_ASSERT(reinterpret_cast<std::uintptr_t>(p) % cache_line_size == 0,
                      "buffer is not aligned to cache line boundary");
         LBFGS_ASSERT(std::all_of(p + _n, p + size,
-                                 [](auto const x) { return x == 0.0; }),
+                                 [](auto const x) { return x == 0.0f; }),
                      "buffer is not initialized properly");
         return {p, _n};
     }
@@ -900,6 +900,12 @@ LBFGS_EXPORT auto thread_local_state(lbfgs_param_t const&   params,
 namespace detail {
 // =========================== Iteration history =========================== {{{
 
+// NOTE: g++ complains about attributes on template arguments being ignored, but
+// it is fine in this case
+#if defined(LBFGS_GCC)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wignored-attributes"
+#endif
 LBFGS_FORCEINLINE auto emplace_back_kernel_8(
     float const* LBFGS_RESTRICT x_ptr, float const* LBFGS_RESTRICT x_prev_ptr,
     float const* LBFGS_RESTRICT g_ptr, float const* LBFGS_RESTRICT g_prev_ptr,
@@ -934,6 +940,9 @@ LBFGS_FORCEINLINE auto emplace_back_kernel_8(
 
     return {_mm256_add_pd(x0, x1), _mm256_add_pd(g0, g1)};
 }
+#if defined(LBFGS_GCC)
+#    pragma GCC diagnostic pop
+#endif
 
 LBFGS_EXPORT auto iteration_history_t::emplace_back(
     gsl::span<float const> x, gsl::span<float const> x_prev,

@@ -31,7 +31,15 @@
 #include "config.hpp"
 #include "line_search.hpp"
 
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wweak-vtables"
+#    pragma clang diagnostic ignored "-Wunused-template"
+#endif
 #include <gsl/gsl-lite.hpp>
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
 
 #include <cstring> // std::memcpy
 #include <numeric>
@@ -640,3 +648,27 @@ namespace std {
 template <>
 struct is_error_code_enum<::LBFGS_NAMESPACE::status_t> : false_type {};
 } // namespace std
+
+namespace gsl {
+/// \brief Custom error handler for GSL contract violations.
+///
+/// We simply call #assert_fail().
+///
+/// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
+/// can use their own custom error handling functions.
+[[noreturn]] inline constexpr auto
+fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
+                         int const line) -> void
+{
+    // This is a dummy if which will always evaluate to true. We need it since
+    // fail_fast_assert_handler in gsl-lite is marked constexpr and out
+    // assert_fail is not.
+    if (line != -2147483648) {
+        ::LBFGS_NAMESPACE::detail::assert_fail(
+            expr, file, static_cast<unsigned>(line), "", msg);
+    }
+    // This call is needed, because we mark the function [[noreturn]] and the
+    // compilers don't know that line numbers can't be negative.
+    std::abort();
+}
+} // namespace gsl

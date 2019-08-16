@@ -131,7 +131,7 @@
         "kind to submit it to "                                                \
         "https://github.com/twesterhout/lbfgs-cpp/issues."
 #else
-#    define TCM_STATIC_ASSERT_BUG_MESSAGE "\n" TCM_BUG_MESSAGE
+#    define LBFGS_STATIC_ASSERT_BUG_MESSAGE "\n" LBFGS_BUG_MESSAGE
 #endif
 /// \endcond
 
@@ -181,33 +181,3 @@ namespace detail {
     -> void;
 } // namespace detail
 LBFGS_NAMESPACE_END
-
-#if defined(LBFGS_USE_GSL_LITE)
-
-#    include <cstdlib> // std::abort
-
-namespace gsl {
-/// \brief Custom error handler for GSL contract violations.
-///
-/// We simply call #assert_fail().
-///
-/// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
-/// can use their own custom error handling functions.
-[[noreturn]] inline constexpr auto
-fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
-                         int const line) -> void
-{
-    // This is a dummy if which will always evaluate to true. We need it since
-    // fail_fast_assert_handler in gsl-lite is marked constexpr and out
-    // assert_fail is not.
-    if (line != -2147483648) {
-        ::LBFGS_NAMESPACE::detail::assert_fail(
-            expr, file, static_cast<unsigned>(line), "", msg);
-    }
-    // This call is needed, because we mark the function [[noreturn]] and the
-    // compilers don't know that line numbers can't be negative.
-    std::abort();
-}
-} // namespace gsl
-
-#endif // LBFGS_USE_GSL_LITE

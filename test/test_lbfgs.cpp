@@ -163,8 +163,8 @@ TEST_CASE("Rosenbrock function", "[lbfgs]")
                    - static_cast<double>(xs[xs.size() - 2])
                          * static_cast<double>(xs[xs.size() - 2])));
         }
-        LBFGS_TRACE("f(%e, %e) = %e, df/dx = [%e, %e]\n", xs[0], xs[1], f_x,
-                    gs[0], gs[1]);
+        // LBFGS_TRACE("f(%e, %e) = %e, df/dx = [%e, %e]\n", xs[0], xs[1], f_x,
+        //             gs[0], gs[1]);
         return f_x;
     };
 
