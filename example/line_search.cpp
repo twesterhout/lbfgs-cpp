@@ -1,6 +1,6 @@
 
-#include "lbfgs.hpp"
 #include "morethuente.h"
+#include <lbfgs/lbfgs.hpp>
 
 #include <iostream>
 

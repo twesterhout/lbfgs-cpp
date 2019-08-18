@@ -1,5 +1,5 @@
-#include "lbfgs.hpp"
 #include <catch2/catch.hpp>
+#include <lbfgs/lbfgs.hpp>
 
 #include <iostream>
 

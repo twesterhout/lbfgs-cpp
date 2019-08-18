@@ -27,7 +27,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // vim: foldenable foldmethod=marker
-#include "lbfgs.hpp"
+#include "lbfgs/lbfgs.hpp"
 #if defined(LBFGS_USE_BLAS)
 #    include <cblas.h>
 #else

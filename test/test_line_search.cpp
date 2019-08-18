@@ -1,5 +1,5 @@
-#include "line_search.hpp"
 #include <catch2/catch.hpp>
+#include <lbfgs/line_search.hpp>
 
 TEST_CASE("Quadratic minimiser", "[quadratic]")
 {

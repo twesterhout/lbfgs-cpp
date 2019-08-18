@@ -1,4 +1,5 @@
-#include "lbfgs.hpp"
+#include <lbfgs/lbfgs.hpp>
+
 #include <iostream>
 
 int main()

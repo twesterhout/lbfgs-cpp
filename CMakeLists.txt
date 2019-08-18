@@ -114,9 +114,9 @@ else()
 endif()
 
 set(lbfgs-cpp_HEADERS
-    "include/config.hpp"
-    "include/line_search.hpp"
-    "include/lbfgs.hpp")
+    "include/lbfgs/config.hpp"
+    "include/lbfgs/line_search.hpp"
+    "include/lbfgs/lbfgs.hpp")
 
 set(lbfgs-cpp_SOURCES
     "src/lbfgs.cpp")
