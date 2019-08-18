@@ -51,7 +51,7 @@ matrix:
             - ubuntu-toolchain-r-test
 
     ############################################################################
-    # Builds with GCC
+    # Builds with Clang
     ############################################################################
     - os: linux
       env: CC=clang-5.0 CXX=clang++-5.0 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug"
@@ -83,6 +83,87 @@ matrix:
           packages:
             - g++-7 # For a relatively up-to-date libstdc++
             - clang-5.0
+            - libopenblas-dev
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-6.0 CXX=clang++-6.0 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-6.0
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-6.0 CXX=clang++-6.0 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug -DLBFGS_USE_BLAS=ON"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-6.0
+            - libopenblas-dev
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-6.0 CXX=clang++-6.0 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Release -DLBFGS_DEBUG=OFF"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-6.0
+            - libopenblas-dev
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-7 CXX=clang++-7 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-7
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-7 CXX=clang++-7 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=-stdlib=libc++"
+      addons:
+        apt:
+          packages:
+            - clang-7
+            - libc++1-7
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-7 CXX=clang++-7 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Debug -DLBFGS_USE_BLAS=ON"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-7
+            - libopenblas-dev
+            - ninja-build
+          sources:
+            - ubuntu-toolchain-r-test
+
+    - os: linux
+      env: CC=clang-7 CXX=clang++-7 OTHER_ARGS="-DCMAKE_BUILD_TYPE=Release -DLBFGS_DEBUG=OFF"
+      addons:
+        apt:
+          packages:
+            - g++-7 # For a relatively up-to-date libstdc++
+            - clang-7
             - libopenblas-dev
             - ninja-build
           sources:
