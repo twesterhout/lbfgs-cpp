@@ -132,6 +132,8 @@ matrix:
             - clang-7
             - ninja-build
           sources:
+            - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
+              key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
             - ubuntu-toolchain-r-test
 
     - os: linux
@@ -141,6 +143,7 @@ matrix:
           packages:
             - clang-7
             - libc++-7-dev
+            - libc++abi-7-dev
             - ninja-build
           sources:
             - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
