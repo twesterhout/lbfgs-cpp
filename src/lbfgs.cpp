@@ -260,6 +260,11 @@ LBFGS_EXPORT auto update_trial_value_and_interval(ls_state_t& state) noexcept
         "αₜ ∉ I");
     LBFGS_ASSERT(state.x.grad * (state.t.alpha - state.x.alpha) < 0.0,
                  "wrong search direction");
+    LBFGS_TRACE("rounding_errors_fn: ф(α_x)=%.10e, ф(α_y)=%.10e, ф(αₜ)=%.10e\n",
+                state.x.func, state.y.func, state.t.func);
+    // LBFGS_ASSERT(state.x.func != state.y.func, "");
+    // LBFGS_ASSERT(state.x.func != state.t.func, "");
+    // LBFGS_ASSERT(state.y.func != state.t.func, "");
     bool   bound;
     double alpha;
     std::tie(alpha, state.bracketed, bound) = handle_cases(state);

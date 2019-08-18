@@ -272,8 +272,8 @@ TEST_CASE("Function (5.1)", "[line_search]")
     // Small interval
     {
         ::LBFGS_NAMESPACE::ls_param_t params;
-        params.f_tol = 1e-3;
-        params.g_tol = 1e-1;
+        params.f_tol = 1e-1;
+        params.g_tol = 1e-4;
         params.x_tol = 1.0; // !!!
         auto const [status, alpha, _1, grad, num_f_evals, _2] =
             ::LBFGS_NAMESPACE::line_search(value_and_gradient,

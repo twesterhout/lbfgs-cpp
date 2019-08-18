@@ -173,6 +173,12 @@ constexpr auto check_parameters(lbfgs_param_t const& p) noexcept -> status_t
     return status_t::success;
 }
 
+template <class T>
+LBFGS_FORCEINLINE constexpr auto as_const(T& x) noexcept -> T const&
+{
+    return x;
+}
+
 struct iteration_data_t {
     double           s_dot_y;
     double           alpha;
@@ -327,13 +333,26 @@ constexpr auto are_overlapping(gsl::span<T1> const x,
 
 /// \brief Point
 struct lbfgs_point_t {
-    double           value; ///< Function value at #tcm::lbfgs::lbfgs_point_t::x
-    gsl::span<float> x;     ///< Point in parameter space.
-    gsl::span<float> grad;
+  private:
+    double _value;          ///< Function value at #tcm::lbfgs::lbfgs_point_t::x
+    gsl::span<float> _x;    ///< Point in parameter space.
+    gsl::span<float> _grad; ///< Function gradient at `_x`.
 
-    constexpr lbfgs_point_t(double const _value, gsl::span<float> _x,
-                            gsl::span<float> _grad) noexcept
-        : value{_value}, x{_x}, grad{_grad}
+    mutable double _x_norm; ///< L₂ norm of `_x`. It should be treated
+        ///< as an optional value with NaN representing `nullopt`.
+        ///< Prefer to use #get_x_norm() member function instead
+    mutable double _grad_norm; ///< L₂ norm of `_grad`. It should be treated
+        ///< as an optional value with NaN representing `nullopt`.
+        ///< Prefer to use #get_x_norm() member function instead
+
+  public:
+    constexpr lbfgs_point_t(double const value, gsl::span<float> const x,
+                            gsl::span<float> const grad) noexcept
+        : _value{value}
+        , _x{x}
+        , _grad{grad}
+        , _x_norm{std::numeric_limits<double>::quiet_NaN()}
+        , _grad_norm{std::numeric_limits<double>::quiet_NaN()}
     {
         LBFGS_ASSERT(
             x.size() == grad.size(),
@@ -347,17 +366,52 @@ struct lbfgs_point_t {
 
     auto operator=(lbfgs_point_t const& other) noexcept -> lbfgs_point_t&
     {
-        LBFGS_ASSERT(x.size() == other.x.size(), "incompatible sizes");
-        LBFGS_ASSERT(grad.size() == other.grad.size(), "incompatible sizes");
-        LBFGS_ASSERT(!are_overlapping(x, other.x), "overlapping ranges");
-        LBFGS_ASSERT(!are_overlapping(grad, other.grad), "overlapping ranges");
+        LBFGS_ASSERT(_x.size() == other._x.size(), "incompatible sizes");
+        LBFGS_ASSERT(_grad.size() == other._grad.size(), "incompatible sizes");
+        LBFGS_ASSERT(!are_overlapping(_x, other._x), "overlapping ranges");
+        LBFGS_ASSERT(!are_overlapping(_grad, other._grad),
+                     "overlapping ranges");
 
         if (LBFGS_UNLIKELY(this == std::addressof(other))) { return *this; }
-        value = other.value;
-        std::memcpy(x.data(), other.x.data(), x.size() * sizeof(float));
-        std::memcpy(grad.data(), other.grad.data(),
-                    grad.size() * sizeof(float));
+        _value     = other._value;
+        _x_norm    = other._x_norm;
+        _grad_norm = other._grad_norm;
+        std::memcpy(_x.data(), other._x.data(), _x.size() * sizeof(float));
+        std::memcpy(_grad.data(), other._grad.data(),
+                    _grad.size() * sizeof(float));
         return *this;
+    }
+
+    constexpr auto value() const noexcept -> double { return _value; }
+    constexpr auto value() noexcept -> double& { return _value; }
+
+    constexpr auto x() const noexcept -> gsl::span<float const> { return _x; }
+    constexpr auto x() noexcept -> gsl::span<float>
+    {
+        _x_norm = std::numeric_limits<double>::quiet_NaN();
+        return _x;
+    }
+
+    constexpr auto grad() const noexcept -> gsl::span<float const>
+    {
+        return _grad;
+    }
+    constexpr auto grad() noexcept -> gsl::span<float>
+    {
+        _grad_norm = std::numeric_limits<double>::quiet_NaN();
+        return _grad;
+    }
+
+    constexpr auto x_norm() const noexcept -> double
+    {
+        if (std::isnan(_x_norm)) { _x_norm = detail::nrm2(_x); }
+        return _x_norm;
+    }
+
+    constexpr auto grad_norm() const noexcept -> double
+    {
+        if (std::isnan(_grad_norm)) { _grad_norm = detail::nrm2(_grad); }
+        return _grad_norm;
     }
 };
 
@@ -416,7 +470,7 @@ struct line_search_runner_fn {
 
     constexpr line_search_runner_fn(lbfgs_state_t&       state,
                                     lbfgs_param_t const& params) noexcept
-        : _state{state}, _params{params.line_search()}
+        : _state{state}, _params{params.line_search()}, _x_tol_0{_params.x_tol}
     {}
 
     line_search_runner_fn(line_search_runner_fn const&) = delete;
@@ -475,27 +529,46 @@ struct line_search_runner_fn {
     auto operator()(Function&& value_and_gradient, double const step_0)
         -> status_t
     {
-        auto const func_0 = _state.current.value;
-        auto const grad_0 = detail::dot(_state.direction, _state.current.grad);
+        auto const func_0 = _state.current.value();
+        auto const grad_0 =
+            detail::dot(_state.direction, as_const(_state.current).grad());
         LBFGS_TRACE("<line_search_runner::operator()>\n"
                     "f(x_0) = %.10e, f'(x_0) = %.10e\n",
                     func_0, grad_0);
-        auto wrapper = wrapper_t<Function&>{
-            value_and_gradient, _state.current.x, _state.current.grad,
-            _state.previous.x, _state.direction};
+        // constexpr auto epsilon =
+        //     static_cast<double>(std::numeric_limits<float>::epsilon()) / 8.0;
+        // Line search will faithfully try to optimise the function even if
+        // `grad_0` is quite small, because it uses doubles everywhere. We,
+        // however, know that for ‖f'(x_0)‖₂ < ε·α₀ we won't even be able to
+        // notice the difference between `f(x_0)` and `f(x_0 + α₀·f'(x_0))` let
+        // alone do something like cubic interpolation...
+        // if (std::abs(grad_0) < epsilon * step_0) {
+        //     LBFGS_TRACE("</line_search_runner::operator()>\n"
+        //                 "f(x)=%.10e, f'(x)=%.10e\n",
+        //                 func_0, grad_0);
+        //     return status_t::rounding_errors_prevent_progress;
+        // }
+        _params.x_tol = _x_tol_0 * _state.current.x_norm();
+        auto wrapper  = wrapper_t<Function&>{
+            value_and_gradient, _state.current.x(), _state.current.grad(),
+            as_const(_state.previous).x(), _state.direction};
         auto const result =
             line_search(wrapper, _params.at_zero(func_0, grad_0), step_0);
-        _state.current.value = result.func;
-        if (!result.cached) { wrapper(result.step, std::false_type{}); }
+        _state.current.value() = result.func;
+        if (!result.cached) {
+            // Make sure that _state.current.grad is up-to-date
+            wrapper(result.step, std::false_type{});
+        }
         LBFGS_TRACE("</line_search_runner::operator()>\n"
                     "f(x)=%.10e, f'(x)=%.10e\n",
-                    _state.current.value, static_cast<double>(result.grad));
+                    _state.current.value(), static_cast<double>(result.grad));
         return result.status;
     }
 
   private:
     lbfgs_state_t& _state;
     ls_param_t     _params;
+    double         _x_tol_0;
 };
 
 /// \brief Checks whether we have reached a local minimum.
@@ -506,20 +579,14 @@ struct gradient_small_enough_fn {
     lbfgs_state_t const& state;
     lbfgs_param_t const& params;
 
-    /*constexpr*/ auto operator()(double const g_norm) const noexcept
-        -> std::pair<bool, double>
+    /*constexpr*/ auto operator()() const noexcept -> bool
     {
-        auto const x_norm = detail::nrm2(state.current.x);
+        auto const g_norm = state.current.grad_norm();
+        auto const x_norm = state.current.x_norm();
         auto const result = g_norm < params.epsilon * std::max(x_norm, 1.0);
         LBFGS_TRACE("is gradient small? %.10e < %.10e * %.10e? -> %i\n", g_norm,
                     params.epsilon, std::max(x_norm, 1.0), result);
-        return {result, x_norm};
-    }
-
-    /*constexpr*/ auto operator()() const noexcept -> std::pair<bool, double>
-    {
-        auto const g_norm = detail::nrm2(state.current.grad);
-        return (*this)(g_norm);
+        return result;
     }
 };
 
@@ -527,9 +594,10 @@ struct search_direction_too_small_fn {
     lbfgs_state_t const& state;
     lbfgs_param_t const& params;
 
-    /*constexpr*/ auto operator()(double const x_norm) const noexcept -> bool
+    /*constexpr*/ auto operator()() const noexcept -> bool
     {
         auto const direction_norm = detail::nrm2(state.direction);
+        auto const x_norm         = state.current.x_norm();
         auto const result =
             direction_norm
             < static_cast<double>(std::numeric_limits<float>::epsilon())
@@ -550,7 +618,7 @@ struct too_little_progress_fn {
     {
         auto& history = state.function_history;
         if (params.past == 0) { return false; }
-        history.emplace_back(state.current.value);
+        history.emplace_back(state.current.value());
         if (history.size() != history.capacity()) { return false; }
         auto const old     = history.back();
         auto const current = history.front();
@@ -562,51 +630,52 @@ template <class Function>
 auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
               lbfgs_state_t& state) -> lbfgs_result_t
 {
-    state.current.value = value_and_gradient(
-        gsl::span<float const>{state.current.x}, state.current.grad);
+    state.current.value() =
+        value_and_gradient(as_const(state.current).x(), state.current.grad());
 
     gradient_small_enough_fn      gradient_is_small{state, params};
     search_direction_too_small_fn direction_is_small{state, params};
     too_little_progress_fn        too_little_progress{state, params};
     line_search_runner_fn         do_line_search{state, params};
 
-    auto const grad_0_norm = detail::nrm2(state.current.grad);
-    if (auto [r, _] = gradient_is_small(grad_0_norm); r) {
-        return {status_t::success, 0, state.current.value};
+    if (gradient_is_small()) {
+        return {status_t::success, 0, state.current.value()};
     }
-    auto step = 1.0 / grad_0_norm;
-    detail::negative_copy(state.current.grad, state.direction);
+    auto step_0 = 1.0 / state.current.grad_norm();
+    detail::negative_copy(as_const(state.current).grad(), state.direction);
 
     for (auto iteration = 1U;; ++iteration) {
         state.previous = state.current;
 
-        if (auto const status = do_line_search(value_and_gradient, step);
+        if (auto const status = do_line_search(value_and_gradient, step_0);
             status != status_t::success) {
-            return {status, iteration, state.current.value};
+            // Line search "failed". If it didn't improve the loss function at
+            // all, then we better undo it.
+            if (std::isnan(state.current.value())
+                || state.current.value() > state.previous.value()) {
+                state.current = state.previous;
+            }
+            return {status, iteration, state.current.value()};
         }
-        auto [done, x_norm] = gradient_is_small();
-        if (done) {
-            return {status_t::success, iteration, state.current.value};
-        }
-        if (too_little_progress()) {
-            return {status_t::success, iteration, state.current.value};
+        if (gradient_is_small() || too_little_progress()) {
+            return {status_t::success, iteration, state.current.value()};
         }
         if (iteration == params.max_iter) {
             return {status_t::too_many_iterations, iteration,
-                    state.current.value};
+                    state.current.value()};
         }
 
-        auto const gamma =
-            state.history.emplace_back(state.current.x, state.previous.x,
-                                       state.current.grad, state.previous.grad);
-        detail::negative_copy(state.current.grad, state.direction);
+        auto const gamma = state.history.emplace_back(
+            as_const(state.current).x(), as_const(state.previous).x(),
+            as_const(state.current).grad(), as_const(state.previous).grad());
+        detail::negative_copy(as_const(state.current).grad(), state.direction);
         apply_inverse_hessian(state.history, gamma, state.direction);
-        if (direction_is_small(x_norm)) {
-            return {status_t::success, iteration, state.current.value};
+        if (direction_is_small()) {
+            return {status_t::success, iteration, state.current.value()};
         }
 
         // From now on, always start with αₜ = 1
-        step = 1.0;
+        step_0 = 1.0;
     }
 }
 } // namespace detail
@@ -631,10 +700,11 @@ auto minimize(Function value_and_gradient, lbfgs_param_t const& params,
                 std::numeric_limits<double>::quiet_NaN()};
     }
     auto state = buffers->make_state();
-    std::memcpy(state.current.x.data(), x.data(), x.size() * sizeof(float));
+    std::memcpy(state.current.x().data(), x.data(), x.size() * sizeof(float));
     auto const result =
         detail::minimize(std::move(value_and_gradient), params, state);
-    std::memcpy(x.data(), state.current.x.data(), x.size() * sizeof(float));
+    std::memcpy(x.data(), as_const(state.current).x().data(),
+                x.size() * sizeof(float));
     return result;
 }
 

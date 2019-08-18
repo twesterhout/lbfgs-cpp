@@ -481,14 +481,11 @@ struct interval_too_small_fn {
     ///
     /// If the interval is indeed too small, #result is set to the best state
     /// obtained so far and a pointer to it is returned.
-    constexpr auto operator()() const noexcept -> ls_result_t*
+    /*constexpr*/ auto operator()() const noexcept -> ls_result_t*
     {
-        if (state.bracketed
-            && (state.interval.length()
-                <= params.x_tol * state.interval.max())) {
+        if (state.bracketed && (state.interval.length() <= params.x_tol)) {
             LBFGS_TRACE("interval too small: %.10e <= %.10e",
-                        state.interval.length(),
-                        params.x_tol * state.interval.max());
+                        state.interval.length(), params.x_tol);
             // NOTE: We return αₓ rather than αₜ!
             result = {status_t::interval_too_small,
                       state.x.alpha,
@@ -498,6 +495,9 @@ struct interval_too_small_fn {
                       false};
             return &result;
         }
+        LBFGS_TRACE("interval too small?? %.10e <= %.10e\n",
+                    state.interval.length(),
+                    params.x_tol * state.interval.max());
         return nullptr;
     }
 };
@@ -633,8 +633,11 @@ struct rounding_errors_fn {
     ls_state_t const& state;  ///< Current state
     ls_param_t const& params; ///< Algorithm options
 
-    constexpr auto operator()() const noexcept -> ls_result_t*
+    /*constexpr*/ auto operator()() const noexcept -> ls_result_t*
     {
+        LBFGS_TRACE(
+            "rounding_errors_fn: ф(α_x)=%.10e, ф(α_y)=%.10e, ф(αₜ)=%.10e\n",
+            state.x.func, state.y.func, state.t.func);
         if (state.bracketed && state.t.alpha == state.interval.min()) {
             result = {status_t::rounding_errors_prevent_progress,
                       state.x.alpha,
