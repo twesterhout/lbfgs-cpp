@@ -256,11 +256,6 @@ TEST_CASE("Goldstein-Price function", "[lbfgs]")
         return f_x;
     };
 
-    {
-        std::array<float, 2> xs = {1.8f, 0.2f};
-        std::array<float, 2> gs;
-        value_and_gradient(gsl::span<float const>{xs}, gsl::span<float>{gs});
-    }
 #if 1
     {
         for (auto& x0 :
