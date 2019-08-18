@@ -19,7 +19,7 @@ matrix:
     # Builds with GCC
     ############################################################################
     - os: linux
-      env: CC=gcc-7 COMPILER=g++-7
+      env: CC=gcc-7 CXX=g++-7
       addons:
         apt:
           packages:
