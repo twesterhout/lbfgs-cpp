@@ -140,9 +140,11 @@ matrix:
         apt:
           packages:
             - clang-7
-            - libc++1-7
+            - libc++-7-dev
             - ninja-build
           sources:
+            - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
+              key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
             - ubuntu-toolchain-r-test
 
     - os: linux
@@ -155,6 +157,8 @@ matrix:
             - libopenblas-dev
             - ninja-build
           sources:
+            - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
+              key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
             - ubuntu-toolchain-r-test
 
     - os: linux
@@ -167,6 +171,8 @@ matrix:
             - libopenblas-dev
             - ninja-build
           sources:
+            - sourceline: 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main'
+              key_url: https://apt.llvm.org/llvm-snapshot.gpg.key
             - ubuntu-toolchain-r-test
 
 install:
