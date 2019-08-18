@@ -24,7 +24,7 @@ TEST_CASE("Test function 1", "[lbfgs]")
     };
 
     {
-        std::array<float, 2>             x0 = {1.0, 1.0};
+        std::array<float, 2>             x0 = {{1.0, 1.0}};
         ::LBFGS_NAMESPACE::lbfgs_param_t params;
         auto const                       r =
             ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);
@@ -54,8 +54,8 @@ TEST_CASE("Sphere function", "[lbfgs]")
 
     {
         for (auto& x0 : std::vector<std::array<float, 5>>{
-                 {1.0f, 1.0f, -8.0f, 1.3f, -0.002f},
-                 {-1000.0f, 0.0f, 3.1293f, 9.0f, 9.0f},
+                 {{1.0f, 1.0f, -8.0f, 1.3f, -0.002f}},
+                 {{-1000.0f, 0.0f, 3.1293f, 9.0f, 9.0f}},
              }) {
             ::LBFGS_NAMESPACE::lbfgs_param_t params;
             auto const                       r =
@@ -170,7 +170,7 @@ TEST_CASE("Rosenbrock function", "[lbfgs]")
 
     {
         for (auto& x0 : std::vector<std::array<float, 2>>{
-                 {15.0f, 8.0f},
+                 {{15.0f, 8.0f}},
              }) {
             ::LBFGS_NAMESPACE::lbfgs_param_t params;
             auto const                       r =
@@ -209,8 +209,10 @@ TEST_CASE("Beale function", "[lbfgs]")
         return f_x;
     };
     {
-        for (auto& x0 : std::vector<std::array<float, 2>>{
-                 {2.5f, -1.0f}, {8.1f, 1.0f}, {5.0f, 5.0f}, {1.01f, 0.5001f}}) {
+        for (auto& x0 : std::vector<std::array<float, 2>>{{{2.5f, -1.0f}},
+                                                          {{8.1f, 1.0f}},
+                                                          {{5.0f, 5.0f}},
+                                                          {{1.01f, 0.5001f}}}) {
             ::LBFGS_NAMESPACE::lbfgs_param_t params;
             auto const                       r =
                 ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);
@@ -258,8 +260,8 @@ TEST_CASE("Goldstein-Price function", "[lbfgs]")
 
 #if 1
     {
-        for (auto& x0 :
-             std::vector<std::array<float, 2>>{{0.5f, 0.5f}, {1.5f, -1.5f}}) {
+        for (auto& x0 : std::vector<std::array<float, 2>>{{{0.5f, 0.5f}},
+                                                          {{1.5f, -1.5f}}}) {
             ::LBFGS_NAMESPACE::lbfgs_param_t params;
             auto const                       r =
                 ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);
@@ -269,7 +271,7 @@ TEST_CASE("Goldstein-Price function", "[lbfgs]")
             REQUIRE(x0[0] == Approx(0.0f).margin(1.0e-6));
             REQUIRE(x0[1] == Approx(-1.0f).margin(1.0e-6));
         }
-        for (auto& x0 : std::vector<std::array<float, 2>>{{1.5f, 0.5f}}) {
+        for (auto& x0 : std::vector<std::array<float, 2>>{{{1.5f, 0.5f}}}) {
             ::LBFGS_NAMESPACE::lbfgs_param_t params;
             auto const                       r =
                 ::LBFGS_NAMESPACE::minimize(value_and_gradient, params, x0);

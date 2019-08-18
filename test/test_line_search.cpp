@@ -755,19 +755,19 @@ TEST_CASE("Himmelblau's Function", "[LineSearches.jl:alphacalc]")
 
     auto const himmelblau_gradient = [](std::array<float, 2> const x) {
         return std::array<float, 2>{
-            4.0f * x[0] * x[0] * x[0] + 4.0f * x[0] * x[1] - 44.0f * x[0]
-                + 2.0f * x[0] + 2.0f * x[1] * x[1] - 14.0f,
-            2.0f * x[0] * x[0] + 2.0f * x[1] - 22.0f + 4.0f * x[0] * x[1]
-                + 4.0f * x[1] * x[1] * x[1] - 28.0f * x[1]};
+            {4.0f * x[0] * x[0] * x[0] + 4.0f * x[0] * x[1] - 44.0f * x[0]
+                 + 2.0f * x[0] + 2.0f * x[1] * x[1] - 14.0f,
+             2.0f * x[0] * x[0] + 2.0f * x[1] - 22.0f + 4.0f * x[0] * x[1]
+                 + 4.0f * x[1] * x[1] * x[1] - 28.0f * x[1]}};
     };
 
-    auto const x0 = std::array<float, 2>{2.0f, 2.0f};
-    auto const s  = std::array<float, 2>{42.0f, 18.0f};
+    auto const x0 = std::array<float, 2>{{2.0f, 2.0f}};
+    auto const s  = std::array<float, 2>{{42.0f, 18.0f}};
 
     auto const value_and_gradient = [=](auto const alpha) {
         auto const x =
-            std::array<float, 2>{x0[0] + static_cast<float>(alpha) * s[0],
-                                 x0[1] + static_cast<float>(alpha) * s[1]};
+            std::array<float, 2>{{x0[0] + static_cast<float>(alpha) * s[0],
+                                  x0[1] + static_cast<float>(alpha) * s[1]}};
         auto const f  = himmelblau(x);
         auto const df = himmelblau_gradient(x);
         return std::make_pair(f, df[0] * s[0] + df[1] * s[1]);

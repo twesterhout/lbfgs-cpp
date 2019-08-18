@@ -181,6 +181,11 @@ namespace {
         return {alpha, /*bracketed=*/true, /*bound=*/false};
     }
 
+// Clang 5.0 treats deduction guides is a weird way...
+#if defined(LBFGS_CLANG) && __clang_major__ < 6
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wundefined-func-template"
+#endif
     inline auto case_3(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>
     {
@@ -218,6 +223,9 @@ namespace {
             std::get<0>(result));                            // NOLINT
         return result;
     }
+#if defined(LBFGS_CLANG) && __clang_major__ < 6
+#    pragma clang diagnostic pop
+#endif
 
     inline auto case_4(ls_state_t const& state) noexcept
         -> std::tuple<double, bool, bool>

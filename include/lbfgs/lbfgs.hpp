@@ -726,9 +726,13 @@ namespace gsl {
 ///
 /// \todo Make this optional so that projects depending on both L-BFGS++ and GSL
 /// can use their own custom error handling functions.
-[[noreturn]] inline constexpr auto
-fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
-                         int const line) -> void
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wmissing-noreturn"
+#endif
+constexpr auto fail_fast_assert_handler(char const* expr, char const* msg,
+                                        char const* file, int const line)
+    -> void
 {
     // This is a dummy if which will always evaluate to true. We need it since
     // fail_fast_assert_handler in gsl-lite is marked constexpr and out
@@ -741,4 +745,7 @@ fail_fast_assert_handler(char const* expr, char const* msg, char const* file,
     // compilers don't know that line numbers can't be negative.
     std::abort();
 }
+#if defined(LBFGS_CLANG)
+#    pragma clang diagnostic pop
+#endif
 } // namespace gsl

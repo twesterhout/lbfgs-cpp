@@ -781,6 +781,11 @@ template <class Function>
 evaluate_fn(Function&, ls_state_t&)->evaluate_fn<Function>;
 /// \endcond
 
+// Clang 5.0 treats deduction guides is a weird way...
+#if defined(LBFGS_CLANG) && __clang_major__ < 6
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wundefined-func-template"
+#endif
 /// Kernel of the algorithm
 template <class Function>
 auto line_search_impl(
@@ -863,6 +868,9 @@ auto line_search_impl(
         ensure_shrinking();
     }
 }
+#if defined(LBFGS_CLANG) && __clang_major__ < 6
+#    pragma clang diagnostic pop
+#endif
 } // namespace detail
 
 template <class Function>
