@@ -1,6 +1,8 @@
 #include <catch2/catch.hpp>
 #include <lbfgs/line_search.hpp>
 
+#include <array>
+
 TEST_CASE("Quadratic minimiser", "[quadratic]")
 {
     auto const approx = [](auto const x) { return Approx(x).epsilon(1e-10); };

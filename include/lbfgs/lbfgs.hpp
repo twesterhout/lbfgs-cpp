@@ -402,13 +402,13 @@ struct lbfgs_point_t {
         return _grad;
     }
 
-    constexpr auto x_norm() const noexcept -> double
+    /*constexpr*/ auto x_norm() const noexcept -> double
     {
         if (std::isnan(_x_norm)) { _x_norm = detail::nrm2(_x); }
         return _x_norm;
     }
 
-    constexpr auto grad_norm() const noexcept -> double
+    /*constexpr*/ auto grad_norm() const noexcept -> double
     {
         if (std::isnan(_grad_norm)) { _grad_norm = detail::nrm2(_grad); }
         return _grad_norm;

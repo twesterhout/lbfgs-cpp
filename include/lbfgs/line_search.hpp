@@ -157,6 +157,26 @@ template <class Function>
 
 namespace detail {
 
+/// In-house implementation of std::min(), because it feels wrong to include
+/// `<algorithm>` for just one or two simple functions.
+template <class T, class Comp = std::less<T>>
+constexpr auto min(T const& x, T const& y, Comp comp = {}) noexcept(noexcept(
+    std::declval<Comp>()(std::declval<T const&>(), std::declval<T const&>())))
+    -> T const&
+{
+    return comp(y, x) ? y : x;
+}
+
+/// In-house implementation of std::max(), because it feels wrong to include
+/// `<algorithm>` for just one or two simple functions.
+template <class T, class Comp = std::less<T>>
+constexpr auto max(T const& x, T const& y, Comp comp = {}) noexcept(noexcept(
+    std::declval<Comp>()(std::declval<T const&>(), std::declval<T const&>())))
+    -> T const&
+{
+    return comp(x, y) ? y : x;
+}
+
 /// In-house implementation of std::minmax(), because it feels wrong to include
 /// `<algorithm>` for just one or two simple functions.
 template <class T, class Comp = std::less<T>>
@@ -217,7 +237,8 @@ class interval_t {
         : interval_t{}
     {
         if (bracketed) {
-            LBFGS_ASSERT(std::min(x, y) <= t && t <= std::max(x, y),
+            LBFGS_ASSERT(::LBFGS_NAMESPACE::detail::min(x, y) <= t
+                             && t <= ::LBFGS_NAMESPACE::detail::max(x, y),
                          "invalid αₜ");
             std::tie(_min, _max) = minmax(x, y);
         }
@@ -270,7 +291,8 @@ struct ls_state_t {
 ///
 /// If no problems with the input parameters can be found, #status_t::success is
 /// returned. Otherwise, the #status_t returned indicated the error.
-constexpr auto check_parameters(ls_param_t const& p) noexcept -> status_t
+inline LBFGS_CONSTEXPR_GLIBCXX auto
+check_parameters(ls_param_t const& p) noexcept -> status_t
 {
     if (std::isnan(p.x_tol) || p.x_tol <= 0.0) {
         return status_t::invalid_interval_tolerance;
@@ -352,7 +374,7 @@ minimise_quadratic_interpolation(double const a, double const f_a,
     auto const length = b - a;
     auto const scale  = (f_b - f_a) / length / df_a;
     auto const alpha  = a + 0.5 * length / (1.0 - scale);
-    LBFGS_ASSERT(std::min(a, b) < alpha && alpha < std::max(a, b),
+    LBFGS_ASSERT(min(a, b) < alpha && alpha < max(a, b),
                  "Postcondition violated");
     return alpha;
 }
@@ -633,11 +655,8 @@ struct rounding_errors_fn {
     ls_state_t const& state;  ///< Current state
     ls_param_t const& params; ///< Algorithm options
 
-    /*constexpr*/ auto operator()() const noexcept -> ls_result_t*
+    constexpr auto operator()() const noexcept -> ls_result_t*
     {
-        LBFGS_TRACE(
-            "rounding_errors_fn: ф(α_x)=%.10e, ф(α_y)=%.10e, ф(αₜ)=%.10e\n",
-            state.x.func, state.y.func, state.t.func);
         if (state.bracketed && state.t.alpha == state.interval.min()) {
             result = {status_t::rounding_errors_prevent_progress,
                       state.x.alpha,
@@ -851,7 +870,7 @@ auto line_search_impl(
             params.func_0 + state.t.alpha * params.f_tol * params.grad_0;
         if (first_stage && (state.t.func <= func_test)
             && (state.t.grad
-                >= std::min(params.f_tol, params.g_tol) * params.grad_0)) {
+                >= min(params.f_tol, params.g_tol) * params.grad_0)) {
             first_stage = false;
         }
         if (first_stage && (state.t.func <= state.x.func)

@@ -96,7 +96,16 @@
     } /*namespace tcm*/
 /// \endcond
 
+// <cmath> is `constexpr` in libstdc++, but not in libc++
+#include <cstddef>
+#if defined(__GLIBCXX__) || defined(__GLIBCPP__)
+#    define LBFGS_CONSTEXPR_GLIBCXX constexpr
+#else
+#    define LBFGS_CONSTEXPR_GLIBCXX /*constexpr*/
+#endif
+
 #if defined(LBFGS_DEBUG)
+#    include <cstdio>
 /// \brief Produces some intermediate output which is useful for tracing steps
 /// of the algorithm.
 ///
