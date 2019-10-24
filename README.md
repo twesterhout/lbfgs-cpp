@@ -31,11 +31,15 @@ implementations (e.g.
 [LineSearches.jl](https://github.com/JuliaNLSolvers/LineSearches.jl/blob/master/src/morethuente.jl),
 [liblbfgs](https://github.com/chokkan/liblbfgs/blob/master/lib/lbfgs.c),
 [CppNumericalSolvers](https://github.com/PatWie/CppNumericalSolvers/blob/master/include/cppoptlib/linesearch/morethuente.h))
-all use the exact same implementation except for the translation from MatLab to
-their language of choice.
+use the exact same code except for the translation from MatLab to their
+language of choice.
 
 It is also quite difficult to see how the code corresponds to the original
 paper. So I decided to write an implementation which it simple enough so that
-it could be understood by anyone who knows a bit of C++17 and has read the
+it could be understood by anyone who knows a bit of `C++17` and has read the
 paper.
 
+## Installing
+
+The preferred way to use this library is [CMake](https://cmake.org/) + [git
+submodules](https://git-scm.com/book/en/v2/Git-Tools-Submodules).
